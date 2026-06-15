@@ -1,0 +1,17 @@
+# Lefthook-managed repository guards.
+# Run manually with:
+#   lefthook run pre-commit --no-auto-install
+#   lefthook run pre-push --no-auto-install
+
+pre-commit:
+  parallel: false
+  commands:
+    harness:
+      run: ./scripts/check.sh pre-commit
+
+pre-push:
+  parallel: false
+  commands:
+    harness:
+      files: git ls-files -co --exclude-standard
+      run: ./scripts/check.sh pre-push
