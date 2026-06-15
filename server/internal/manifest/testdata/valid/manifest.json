@@ -1,0 +1,45 @@
+{
+  "schema_version": "1.0",
+  "dataset_name": "princeton-nlp/SWE-bench_Lite",
+  "split": "test",
+  "image_prefix": "ghcr.io/example/swebench-images",
+  "tag": "latest",
+  "arch": "x86_64",
+  "platform": "linux/x86_64",
+  "instance_ids": ["django__django-11099"],
+  "base_images": [
+    {
+      "local_image_key": "sweb.base.py.x86_64",
+      "target_image": "ghcr.io/example/swebench-images:sweb.base.py.x86_64",
+      "context_path": "contexts/base/base_py",
+      "dockerfile": "Dockerfile",
+      "platform": "linux/x86_64",
+      "language": "py"
+    }
+  ],
+  "env_images": [
+    {
+      "local_image_key": "sweb.env.py.x86_64.abc123",
+      "target_image": "ghcr.io/example/swebench-images:sweb.env.py.x86_64.abc123",
+      "context_path": "contexts/env/env_py",
+      "dockerfile": "Dockerfile",
+      "platform": "linux/x86_64",
+      "language": "py",
+      "base_image": "ghcr.io/example/swebench-images:sweb.base.py.x86_64",
+      "base_local_image_key": "sweb.base.py.x86_64"
+    }
+  ],
+  "instance_images": [
+    {
+      "instance_id": "django__django-11099",
+      "local_image_key": "sweb.eval.x86_64.django_1776_django-11099",
+      "target_image": "ghcr.io/example/swebench-images:sweb.eval.x86_64.django_1776_django-11099",
+      "context_path": "contexts/instances/inst_django",
+      "dockerfile": "Dockerfile",
+      "platform": "linux/x86_64",
+      "language": "py",
+      "env_image": "ghcr.io/example/swebench-images:sweb.env.py.x86_64.abc123",
+      "env_local_image_key": "sweb.env.py.x86_64.abc123"
+    }
+  ]
+}
