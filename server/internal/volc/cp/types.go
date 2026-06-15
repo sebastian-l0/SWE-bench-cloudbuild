@@ -53,20 +53,37 @@ type CreateServiceConnectionInput struct {
 	Type string `json:"Type"`
 }
 
+// PipelineParameter is a CP pipeline parameter definition.
+type PipelineParameter struct {
+	Key          string   `json:"Key"`
+	Value        string   `json:"Value"`
+	Dynamic      bool     `json:"Dynamic"`
+	OptionValues []string `json:"OptionValues,omitempty"`
+}
+
 // CreatePipelineInput is the input for creating a pipeline. The CP create-pipeline
 // contract is unstable; callers should treat this as best-effort.
 type CreatePipelineInput struct {
 	WorkspaceID string `json:"WorkspaceId"`
 	Name        string `json:"Name"`
-	// YAML holds the pipeline definition. Field names follow CP conventions and
-	// may change.
-	YAML string `json:"Yaml,omitempty"`
+	Description string `json:"Description,omitempty"`
+	// Spec holds the pipeline definition YAML.
+	Spec       string              `json:"Spec"`
+	Parameters []PipelineParameter `json:"Parameters,omitempty"`
 }
 
-// RunPipelineInput triggers a pipeline run with variables.
+// RunPipelineParam overrides a dynamic parameter for a single run. The exact CP
+// field name (Params vs Variables) is unconfirmed and may need a one-line change
+// when integrating against the live API.
+type RunPipelineParam struct {
+	Key   string `json:"Key"`
+	Value string `json:"Value"`
+}
+
+// RunPipelineInput triggers a pipeline run with per-run parameter overrides.
 type RunPipelineInput struct {
-	PipelineID string            `json:"PipelineId"`
-	Variables  map[string]string `json:"Variables,omitempty"`
+	PipelineID string             `json:"PipelineId"`
+	Params     []RunPipelineParam `json:"Params,omitempty"`
 }
 
 // Client is the CP API surface used by the orchestrator. Both the real HTTP

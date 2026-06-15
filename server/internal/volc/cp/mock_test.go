@@ -32,7 +32,7 @@ func TestMockClientLifecycle(t *testing.T) {
 		t.Fatalf("ListPipelines = %v, %v", pls, err)
 	}
 
-	run, err := m.RunPipeline(ctx, RunPipelineInput{PipelineID: p.ID, Variables: map[string]string{"TARGET_IMAGE": "x"}})
+	run, err := m.RunPipeline(ctx, RunPipelineInput{PipelineID: p.ID, Params: []RunPipelineParam{{Key: "tag", Value: "x"}}})
 	if err != nil || run.Status != "Running" {
 		t.Fatalf("RunPipeline = %#v, %v", run, err)
 	}
