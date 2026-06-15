@@ -74,6 +74,20 @@ SWE-cloudbuild 是一个本地 Web 应用，用于通过 Volcengine 云服务构
 - API responses 只能暴露非 secret metadata 和 masked secret presence，不能返回 raw secrets。
 - Redact common sensitive keys：`AK`、`SK`、`ACCESS_KEY`、`SECRET_KEY`、`TOKEN`、`PASSWORD`、`DATABASE_URL`、authorization headers、CP/TOS credentials。
 
+## Go Toolchain (gvm)
+
+- 后端要求 Go 1.22+（见 `server/go.mod`）。系统默认 `go` 可能是更低版本，运行测试前必须用 gvm 切到兼容版本。
+- 加载 gvm 并切换版本：
+
+```bash
+source ~/.gvm/scripts/gvm
+gvm use go1.26.1   # 或任意 >=1.22 的已装版本；如缺失先 gvm install go1.22
+go version          # 确认 >= go1.22
+```
+
+- 若系统 `GOROOT` 指向旧版本导致编译失败，运行 go 命令时加 `env -u GOROOT`。
+- `scripts/test-backend.sh` 默认使用 PATH 中的 `go`；切换 gvm 版本后再运行，或通过 `GO_BIN="$(command -v go)"` 显式指定。
+
 ## Useful Commands
 
 ```bash

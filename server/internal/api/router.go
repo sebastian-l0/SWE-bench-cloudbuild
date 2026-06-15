@@ -98,7 +98,9 @@ func PublicConfigFrom(cfg config.Config) PublicConfig {
 		CP:                cfg.CP,
 		MockMode:          cfg.MockMode,
 		Secrets: SecretPresence{
-			DatabaseURL: cfg.DatabaseURL != "",
+			VolcAccessKey: cfg.VolcAccessKey != "",
+			VolcSecretKey: cfg.VolcSecretKey != "",
+			DatabaseURL:   cfg.DatabaseURL != "",
 		},
 	}
 }

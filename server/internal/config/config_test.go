@@ -8,6 +8,8 @@ func TestLoadDefaultsAndEnvironmentOverrides(t *testing.T) {
 	t.Setenv("SWE_CLOUDBUILD_TOS_BUCKET", "demo-bucket")
 	t.Setenv("SWE_CLOUDBUILD_TOS_PREFIX", "demo/prefix")
 	t.Setenv("SWE_CLOUDBUILD_REGISTRY_NAMESPACE", "registry.example.com/swe")
+	t.Setenv("VOLC_ACCESS_KEY", "AKIA"+"loadtest")
+	t.Setenv("VOLC_SECRET_KEY", "secret"+"loadtest")
 	t.Setenv("SWE_CLOUDBUILD_MOCK", "1")
 
 	cfg := Load()
@@ -17,6 +19,9 @@ func TestLoadDefaultsAndEnvironmentOverrides(t *testing.T) {
 	}
 	if cfg.VolcTarget != "pre" {
 		t.Fatalf("VolcTarget = %q", cfg.VolcTarget)
+	}
+	if cfg.VolcAccessKey != "AKIA"+"loadtest" || cfg.VolcSecretKey != "secret"+"loadtest" {
+		t.Fatalf("Volc credentials = %q / %q", cfg.VolcAccessKey, cfg.VolcSecretKey)
 	}
 	if cfg.TOS.Bucket != "demo-bucket" || cfg.TOS.ParentPath != "demo/prefix" {
 		t.Fatalf("TOS = %#v", cfg.TOS)
@@ -53,6 +58,29 @@ func TestRedactMasksSensitiveKeysAndValues(t *testing.T) {
 	}
 	if !contains(got, "<redacted>") {
 		t.Fatalf("redacted output = %q, want marker", got)
+	}
+}
+
+func TestRedactMasksJSONSecretValues(t *testing.T) {
+	accessKey := "AKIA" + "jsonsecret"
+	dbURL := "postgres://" + "u:p@h/db"
+	input := `{"volcAccessKey":"` + accessKey + `","databaseUrl": "` + dbURL + `","registryNamespace":"keep-me"}`
+	got := Redact(input)
+
+	for _, leaked := range []string{accessKey, dbURL} {
+		if contains(got, leaked) {
+			t.Fatalf("redacted JSON leaked %q in %q", leaked, got)
+		}
+	}
+	if !contains(got, "keep-me") {
+		t.Fatalf("redacted JSON dropped non-secret value: %q", got)
+	}
+}
+
+func TestRedactDoesNotTouchUnrelatedKeys(t *testing.T) {
+	input := "task=build worktree=clean"
+	if got := Redact(input); got != input {
+		t.Fatalf("redact altered unrelated input: %q", got)
 	}
 }
 

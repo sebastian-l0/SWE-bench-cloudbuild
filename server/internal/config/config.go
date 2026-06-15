@@ -4,6 +4,7 @@ import (
 	"os"
 	"regexp"
 	"strconv"
+	"strings"
 )
 
 const defaultDatabaseURL = "postgres://swe_cloudbuild:swe_cloudbuild@localhost:5432/swe_cloudbuild?sslmode=disable"
@@ -12,6 +13,8 @@ type Config struct {
 	HTTPAddr          string
 	DatabaseURL       string
 	VolcTarget        string
+	VolcAccessKey     string
+	VolcSecretKey     string
 	TOS               TOSConfig
 	Dataset           DatasetConfig
 	Materializer      MaterializerConfig
@@ -80,6 +83,8 @@ func Load() Config {
 	cfg.HTTPAddr = envString("SWE_CLOUDBUILD_HTTP_ADDR", cfg.HTTPAddr)
 	cfg.DatabaseURL = envString("DATABASE_URL", cfg.DatabaseURL)
 	cfg.VolcTarget = envString("SWE_CLOUDBUILD_VOLC_TARGET", cfg.VolcTarget)
+	cfg.VolcAccessKey = envString("VOLC_ACCESS_KEY", cfg.VolcAccessKey)
+	cfg.VolcSecretKey = envString("VOLC_SECRET_KEY", cfg.VolcSecretKey)
 	cfg.TOS.Bucket = envString("SWE_CLOUDBUILD_TOS_BUCKET", cfg.TOS.Bucket)
 	cfg.TOS.ParentPath = envString("SWE_CLOUDBUILD_TOS_PREFIX", cfg.TOS.ParentPath)
 	cfg.Dataset.Name = envString("SWE_CLOUDBUILD_DATASET", cfg.Dataset.Name)
@@ -127,21 +132,36 @@ func envBool(key string, fallback bool) bool {
 	return parsed
 }
 
-var sensitivePatterns = []*regexp.Regexp{
-	regexp.MustCompile(`(?i)(AK|SK|ACCESS_KEY|SECRET_KEY|TOKEN|PASSWORD|DATABASE_URL)=[^\s]+`),
-	regexp.MustCompile(`(?i)(Authorization:\s*)[^\s]+(?:\s+[^\s]+)?`),
-	regexp.MustCompile(`postgres://[^\s]+`),
+// Long, underscore-joined keys (optionally with a prefix like VOLC_). These are
+// specific enough that a prefix match won't hit unrelated identifiers.
+var longKeyPattern = regexp.MustCompile(`(?i)[A-Z0-9_]*(ACCESS_KEY|SECRET_KEY|ACCESS_TOKEN|DATABASE_URL|TOKEN|PASSWORD)=[^\s"']+`)
+
+// Short keys AK/SK must be standalone tokens to avoid matching the tail of words
+// like "task=" (which contains "sk").
+var shortKeyPattern = regexp.MustCompile(`(?i)(^|[^A-Za-z0-9_])(AK|SK)=[^\s"']+`)
+
+// JSON "key":"value" forms in API responses and persisted events. Matches keys
+// whose name contains a sensitive word (camelCase or snake_case), e.g.
+// "volcAccessKey", "secret_key", "databaseUrl"; AK/SK only as a standalone key.
+var jsonPattern = regexp.MustCompile(`(?i)("(?:[A-Za-z0-9]*(?:access_?key|secret_?key|access_?token|database_?url|token|password)|ak|sk)"\s*:\s*)"[^"]*"`)
+
+// Authorization header.
+var authPattern = regexp.MustCompile(`(?i)(authorization:\s*)\S+(?:\s+\S+)?`)
+
+// Connection strings; bounded so JSON/quoted contexts don't swallow trailing data.
+var postgresPattern = regexp.MustCompile(`postgres://[^\s"']+`)
+
+func redactAssignment(match string) string {
+	eq := strings.IndexByte(match, '=')
+	return match[:eq+1] + "<redacted>"
 }
 
 func Redact(input string) string {
 	out := input
-	for _, pattern := range sensitivePatterns {
-		out = pattern.ReplaceAllStringFunc(out, func(match string) string {
-			if len(match) >= 14 && (match[:14] == "Authorization:" || match[:14] == "authorization:") {
-				return match[:14] + " <redacted>"
-			}
-			return "<redacted>"
-		})
-	}
+	out = jsonPattern.ReplaceAllString(out, `${1}"<redacted>"`)
+	out = longKeyPattern.ReplaceAllStringFunc(out, redactAssignment)
+	out = shortKeyPattern.ReplaceAllStringFunc(out, redactAssignment)
+	out = authPattern.ReplaceAllString(out, `${1}<redacted>`)
+	out = postgresPattern.ReplaceAllString(out, "<redacted>")
 	return out
 }
