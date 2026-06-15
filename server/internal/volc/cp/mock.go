@@ -188,6 +188,25 @@ func (m *MockClient) CancelPipelineRun(_ context.Context, _ string, _ string, ru
 	return nil
 }
 
-func (m *MockClient) GetTaskRunLog(_ context.Context, _ string, taskID string, _ string) (LogPage, error) {
-	return LogPage{Content: fmt.Sprintf("mock log for task %s\n", taskID)}, nil
+func (m *MockClient) ListTaskRuns(_ context.Context, _ string, _ string, runID string, _ string) ([]TaskRun, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	run, ok := m.runs[runID]
+	if !ok {
+		return nil, notFound("pipeline run", runID)
+	}
+	out := make([]TaskRun, 0)
+	for _, stage := range run.Stages {
+		for _, task := range stage.Tasks {
+			out = append(out, TaskRun{
+				ID: task.ID, TaskID: task.ID, Name: task.Name, Status: task.Status,
+				Steps: []TaskStep{{Name: "build", Status: task.Status, LogStatus: "Finished"}},
+			})
+		}
+	}
+	return out, nil
+}
+
+func (m *MockClient) GetTaskRunLog(_ context.Context, in GetTaskRunLogInput) (LogPage, error) {
+	return LogPage{LogLines: []string{fmt.Sprintf("mock log for task %s step %s", in.TaskRunID, in.StepName)}}, nil
 }

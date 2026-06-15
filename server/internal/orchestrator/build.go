@@ -2,10 +2,12 @@ package orchestrator
 
 import (
 	"context"
+	"strings"
 	"sync"
 
 	"github.com/sebastian-l0/SWE-bench-cloudbuild/server/internal/manifest"
 	"github.com/sebastian-l0/SWE-bench-cloudbuild/server/internal/model"
+	"github.com/sebastian-l0/SWE-bench-cloudbuild/server/internal/volc/cp"
 )
 
 // phaseForLayer maps a layer to its run phase.
@@ -231,15 +233,32 @@ func (o *Orchestrator) ImageLog(ctx context.Context, imageBuildID string) (strin
 	if err != nil {
 		return "", err
 	}
-	var buf string
+	var buf strings.Builder
 	for _, stage := range run.Stages {
 		for _, task := range stage.Tasks {
-			page, err := o.cp.GetTaskRunLog(ctx, img.WorkspaceID, task.ID, "")
+			taskRuns, err := o.cp.ListTaskRuns(ctx, img.WorkspaceID, img.PipelineID, img.LastRunID, task.ID)
 			if err != nil {
 				return "", err
 			}
-			buf += page.Content
+			for _, tr := range taskRuns {
+				for _, step := range tr.Steps {
+					page, err := o.cp.GetTaskRunLog(ctx, cp.GetTaskRunLogInput{
+						WorkspaceID:   img.WorkspaceID,
+						PipelineID:    img.PipelineID,
+						PipelineRunID: img.LastRunID,
+						TaskRunID:     tr.ID,
+						TaskID:        tr.TaskID,
+						StepName:      step.Name,
+					})
+					if err != nil {
+						return "", err
+					}
+					for _, line := range page.LogLines {
+						buf.WriteString(line)
+					}
+				}
+			}
 		}
 	}
-	return buf, nil
+	return buf.String(), nil
 }

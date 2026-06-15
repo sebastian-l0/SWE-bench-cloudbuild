@@ -46,8 +46,15 @@ func TestMockClientLifecycle(t *testing.T) {
 		t.Fatalf("stages/tasks = %#v", got.Stages)
 	}
 
-	logPage, err := m.GetTaskRunLog(ctx, "ws", got.Stages[0].Tasks[0].ID, "")
-	if err != nil || logPage.Content == "" {
+	taskRuns, err := m.ListTaskRuns(ctx, "ws", p.ID, run.ID, got.Stages[0].Tasks[0].ID)
+	if err != nil || len(taskRuns) != 1 || len(taskRuns[0].Steps) == 0 {
+		t.Fatalf("ListTaskRuns = %#v, %v", taskRuns, err)
+	}
+	logPage, err := m.GetTaskRunLog(ctx, GetTaskRunLogInput{
+		WorkspaceID: "ws", PipelineID: p.ID, PipelineRunID: run.ID,
+		TaskRunID: taskRuns[0].ID, TaskID: taskRuns[0].TaskID, StepName: taskRuns[0].Steps[0].Name,
+	})
+	if err != nil || len(logPage.LogLines) == 0 {
 		t.Fatalf("GetTaskRunLog = %#v, %v", logPage, err)
 	}
 }

@@ -46,10 +46,30 @@ type RunTask struct {
 	Status string `json:"Status"`
 }
 
-// LogPage is a page of task-run logs.
+// TaskRun is a task execution returned by ListTaskRuns. Id is the TaskRunId;
+// TaskId is the task definition id. Steps carry per-step names used for logs.
+type TaskRun struct {
+	ID     string     `json:"Id"`
+	TaskID string     `json:"TaskId"`
+	Name   string     `json:"Name"`
+	Status string     `json:"Status"`
+	Steps  []TaskStep `json:"Steps"`
+}
+
+// TaskStep is a step within a task run.
+type TaskStep struct {
+	Name      string `json:"Name"`
+	Status    string `json:"Status"`
+	LogStatus string `json:"LogStatus"`
+	LogURI    string `json:"LogUri"`
+}
+
+// LogPage is a page of step logs returned by GetTaskRunLog.
 type LogPage struct {
-	Content   string `json:"Content"`
-	NextToken string `json:"NextToken"`
+	LogLines   []string `json:"LogLines"`
+	More       bool     `json:"More"`
+	NextOffset int      `json:"NextOffset"`
+	NextLimit  int      `json:"NextLimit"`
 }
 
 // CreateWorkspaceInput is the input for creating a workspace.
@@ -100,6 +120,18 @@ type RunPipelineInput struct {
 	Params      []RunPipelineParam `json:"Params,omitempty"`
 }
 
+// GetTaskRunLogInput identifies a single step's log within a task run.
+type GetTaskRunLogInput struct {
+	WorkspaceID   string
+	PipelineID    string
+	PipelineRunID string
+	TaskRunID     string
+	TaskID        string
+	StepName      string
+	Offset        int
+	Limit         int
+}
+
 // Client is the CP API surface used by the orchestrator. Both the real HTTP
 // client and the in-memory mock implement it.
 type Client interface {
@@ -120,5 +152,6 @@ type Client interface {
 	GetPipelineRun(ctx context.Context, workspaceID, pipelineID, runID string) (PipelineRun, error)
 	CancelPipelineRun(ctx context.Context, workspaceID, pipelineID, runID string) error
 
-	GetTaskRunLog(ctx context.Context, workspaceID, taskID string, nextToken string) (LogPage, error)
+	ListTaskRuns(ctx context.Context, workspaceID, pipelineID, runID, taskID string) ([]TaskRun, error)
+	GetTaskRunLog(ctx context.Context, in GetTaskRunLogInput) (LogPage, error)
 }

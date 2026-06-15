@@ -3,6 +3,7 @@ package cp
 import (
 	"context"
 	"net/http"
+	"strconv"
 )
 
 var _ Client = (*HTTPClient)(nil)
@@ -99,11 +100,34 @@ func (c *HTTPClient) CancelPipelineRun(ctx context.Context, workspaceID, pipelin
 		map[string]string{"WorkspaceId": workspaceID, "PipelineId": pipelineID, "Id": runID}, nil)
 }
 
-func (c *HTTPClient) GetTaskRunLog(ctx context.Context, workspaceID, taskID string, nextToken string) (LogPage, error) {
+func (c *HTTPClient) ListTaskRuns(ctx context.Context, workspaceID, pipelineID, runID, taskID string) ([]TaskRun, error) {
+	var out struct {
+		Items []TaskRun `json:"Items"`
+	}
+	err := c.Call(ctx, http.MethodGet, "ListTaskRuns", map[string]string{
+		"WorkspaceId":   workspaceID,
+		"PipelineId":    pipelineID,
+		"PipelineRunId": runID,
+		"TaskId":        taskID,
+	}, &out)
+	return out.Items, err
+}
+
+func (c *HTTPClient) GetTaskRunLog(ctx context.Context, in GetTaskRunLogInput) (LogPage, error) {
 	var out LogPage
-	params := map[string]string{"WorkspaceId": workspaceID, "TaskId": taskID}
-	if nextToken != "" {
-		params["NextToken"] = nextToken
+	params := map[string]string{
+		"WorkspaceId":   in.WorkspaceID,
+		"PipelineId":    in.PipelineID,
+		"PipelineRunId": in.PipelineRunID,
+		"TaskRunId":     in.TaskRunID,
+		"TaskId":        in.TaskID,
+		"StepName":      in.StepName,
+	}
+	if in.Offset > 0 {
+		params["Offset"] = strconv.Itoa(in.Offset)
+	}
+	if in.Limit > 0 {
+		params["Limit"] = strconv.Itoa(in.Limit)
 	}
 	err := c.Call(ctx, http.MethodGet, "GetTaskRunLog", params, &out)
 	return out, err
