@@ -34,10 +34,10 @@ type TOSConfig struct {
 // RegistryConfig describes the target container registry used by the CP build
 // step (registryInstance/namespace/repo in the pipeline spec).
 type RegistryConfig struct {
-	Instance     string // registry domain for the TOS download URL, e.g. agentkit-...cr.volces.com
-	InstanceName string // CR instance name for the build step, e.g. agentkit-platform-2100483201
-	Namespace    string // e.g. sebs-io
-	Repo         string // e.g. swebench
+	Instance     string // registry domain for the TOS download URL, e.g. <instance>-<region>.cr.volces.com
+	InstanceName string // CR instance name for the build step, e.g. <instance>
+	Namespace    string // image namespace
+	Repo         string // image repo
 }
 
 type DatasetConfig struct {
@@ -88,8 +88,7 @@ func Defaults() Config {
 			PipelinePrefix:  "swe-image-build",
 		},
 		Registry: RegistryConfig{
-			Namespace: "sebs-io",
-			Repo:      "swebench",
+			Repo: "swebench",
 		},
 	}
 }

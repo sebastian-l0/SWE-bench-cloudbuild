@@ -97,8 +97,8 @@ stages:
 
 // BuildSettings holds the static configuration injected into pipeline parameters.
 type BuildSettings struct {
-	Registry         string // registry domain for the TOS download URL, e.g. agentkit-...cr.volces.com
-	RegistryInstance string // CR instance name for the build step, e.g. agentkit-platform-2100483201
+	Registry         string // registry domain for the TOS download URL, e.g. <instance>-<region>.cr.volces.com
+	RegistryInstance string // CR instance name for the build step, e.g. <instance>
 	Namespace        string
 	Repo             string
 	TOSBucket        string
