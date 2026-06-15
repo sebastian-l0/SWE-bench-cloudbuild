@@ -61,11 +61,31 @@ func (r *Router) health(w http.ResponseWriter, req *http.Request) {
 }
 
 func (r *Router) config(w http.ResponseWriter, req *http.Request) {
-	if req.Method != http.MethodGet {
+	switch req.Method {
+	case http.MethodGet:
+		cfg := r.cfg
+		if r.svc != nil {
+			cfg = r.svc.Config()
+		}
+		writeJSON(w, http.StatusOK, PublicConfigFrom(cfg))
+	case http.MethodPut:
+		if r.svc == nil {
+			writeError(w, http.StatusNotImplemented, "not_implemented", "config updates require a service")
+			return
+		}
+		var body configUpdateBody
+		if req.Body != nil {
+			_ = json.NewDecoder(req.Body).Decode(&body)
+		}
+		cfg, err := r.svc.UpdateConfig(body.toServiceUpdate())
+		if err != nil {
+			writeError(w, http.StatusBadRequest, "invalid_config", err.Error())
+			return
+		}
+		writeJSON(w, http.StatusOK, PublicConfigFrom(cfg))
+	default:
 		writeError(w, http.StatusMethodNotAllowed, "method_not_allowed", "method not allowed")
-		return
 	}
-	writeJSON(w, http.StatusOK, PublicConfigFrom(r.cfg))
 }
 
 func (r *Router) notFound(w http.ResponseWriter, req *http.Request) {

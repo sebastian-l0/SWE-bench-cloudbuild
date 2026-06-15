@@ -133,3 +133,33 @@ func TestListRunsEmpty(t *testing.T) {
 		t.Fatalf("runs = %d, want 0", len(resp.Runs))
 	}
 }
+
+func TestPutConfigAppliesOverridesWithoutLeak(t *testing.T) {
+	svc, _ := newTestService(t)
+	h := NewRouterWithService(svc)
+
+	secret := "AKIA" + "putconfig"
+	body, _ := json.Marshal(map[string]any{
+		"registryNamespace": "reg.example.com/swe",
+		"volcAccessKey":     secret,
+	})
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, httptest.NewRequest(http.MethodPut, "/api/config", bytes.NewReader(body)))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("put status = %d body=%s", rec.Code, rec.Body.String())
+	}
+	if bytes.Contains(rec.Body.Bytes(), []byte(secret)) {
+		t.Fatalf("response leaked secret: %s", rec.Body.String())
+	}
+
+	var pub PublicConfig
+	if err := json.Unmarshal(rec.Body.Bytes(), &pub); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if pub.RegistryNamespace != "reg.example.com/swe" {
+		t.Fatalf("registry = %q", pub.RegistryNamespace)
+	}
+	if !pub.Secrets.VolcAccessKey {
+		t.Fatalf("expected volc access key presence true")
+	}
+}

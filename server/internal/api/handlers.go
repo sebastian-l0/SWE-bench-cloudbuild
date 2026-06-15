@@ -12,6 +12,30 @@ import (
 	"github.com/sebastian-l0/SWE-bench-cloudbuild/server/internal/store"
 )
 
+// configUpdateBody is the PUT /api/config request. Pointer fields distinguish
+// "omitted" from "set to empty"; only provided fields are applied.
+type configUpdateBody struct {
+	VolcTarget        *string `json:"volcTarget"`
+	VolcAccessKey     *string `json:"volcAccessKey"`
+	VolcSecretKey     *string `json:"volcSecretKey"`
+	TOSBucket         *string `json:"tosBucket"`
+	TOSParentPath     *string `json:"tosParentPath"`
+	RegistryNamespace *string `json:"registryNamespace"`
+	MockMode          *bool   `json:"mockMode"`
+}
+
+func (b configUpdateBody) toServiceUpdate() service.ConfigUpdate {
+	return service.ConfigUpdate{
+		VolcTarget:        b.VolcTarget,
+		VolcAccessKey:     b.VolcAccessKey,
+		VolcSecretKey:     b.VolcSecretKey,
+		TOSBucket:         b.TOSBucket,
+		TOSParentPath:     b.TOSParentPath,
+		RegistryNamespace: b.RegistryNamespace,
+		MockMode:          b.MockMode,
+	}
+}
+
 // runsCollection handles GET /api/runs and POST /api/runs.
 func (r *Router) runsCollection(w http.ResponseWriter, req *http.Request) {
 	switch req.Method {

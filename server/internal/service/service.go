@@ -30,16 +30,16 @@ func newID() string {
 
 // Service coordinates a run from materialization through CP build.
 type Service struct {
-	cfg          config.Config
 	store        store.Store
-	cpClient     cp.Client
 	materializer *materializer.Materializer
 	uploader     *tosupload.Uploader
-	orch         *orchestrator.Orchestrator
 	now          func() time.Time
 
-	mu      sync.Mutex
-	running map[string]context.CancelFunc
+	mu       sync.Mutex
+	cfg      config.Config
+	cpClient cp.Client
+	orch     *orchestrator.Orchestrator
+	running  map[string]context.CancelFunc
 }
 
 // Options configures a Service. Materializer/Uploader may be nil to use defaults.
@@ -76,35 +76,89 @@ func New(opts Options) (*Service, error) {
 		up = tosupload.New(nil, "")
 	}
 
-	orch := orchestrator.New(orchestrator.Options{
+	s := &Service{
+		store:        opts.Store,
+		materializer: mat,
+		uploader:     up,
+		now:          now,
+		cfg:          opts.Config,
+		cpClient:     cpClient,
+		running:      make(map[string]context.CancelFunc),
+	}
+	s.orch = buildOrchestrator(opts.Config, opts.Store, cpClient, now)
+	return s, nil
+}
+
+// buildOrchestrator constructs an orchestrator from config and dependencies.
+func buildOrchestrator(cfg config.Config, st store.Store, cpClient cp.Client, now func() time.Time) *orchestrator.Orchestrator {
+	return orchestrator.New(orchestrator.Options{
 		Client: cpClient,
-		Store:  opts.Store,
+		Store:  st,
 		Settings: orchestrator.BuildSettings{
-			Registry:  opts.Config.RegistryNamespace,
-			Namespace: opts.Config.CP.WorkspacePrefix,
-			Repo:      opts.Config.CP.PipelinePrefix,
-			TOSBucket: opts.Config.TOS.Bucket,
-			TOSRegion: opts.Config.VolcTarget,
-			TOSPath:   opts.Config.TOS.ParentPath,
+			Registry:  cfg.RegistryNamespace,
+			Namespace: cfg.CP.WorkspacePrefix,
+			Repo:      cfg.CP.PipelinePrefix,
+			TOSBucket: cfg.TOS.Bucket,
+			TOSRegion: cfg.VolcTarget,
+			TOSPath:   cfg.TOS.ParentPath,
 		},
 		Concurrency: orchestrator.Concurrency{
-			Base:     opts.Config.Concurrency.Base,
-			Env:      opts.Config.Concurrency.Env,
-			Instance: opts.Config.Concurrency.Instance,
+			Base:     cfg.Concurrency.Base,
+			Env:      cfg.Concurrency.Env,
+			Instance: cfg.Concurrency.Instance,
 		},
 		Now: now,
 	})
+}
 
-	return &Service{
-		cfg:          opts.Config,
-		store:        opts.Store,
-		cpClient:     cpClient,
-		materializer: mat,
-		uploader:     up,
-		orch:         orch,
-		now:          now,
-		running:      make(map[string]context.CancelFunc),
-	}, nil
+// ConfigUpdate carries UI-entered overrides; empty/nil fields are left unchanged.
+type ConfigUpdate struct {
+	VolcTarget        *string
+	VolcAccessKey     *string
+	VolcSecretKey     *string
+	TOSBucket         *string
+	TOSParentPath     *string
+	RegistryNamespace *string
+	MockMode          *bool
+}
+
+// UpdateConfig applies UI overrides and rebuilds the CP client and orchestrator.
+// UI-entered values take precedence over .env, matching the spec.
+func (s *Service) UpdateConfig(in ConfigUpdate) (config.Config, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	cfg := s.cfg
+	if in.VolcTarget != nil {
+		cfg.VolcTarget = *in.VolcTarget
+	}
+	if in.VolcAccessKey != nil {
+		cfg.VolcAccessKey = *in.VolcAccessKey
+	}
+	if in.VolcSecretKey != nil {
+		cfg.VolcSecretKey = *in.VolcSecretKey
+	}
+	if in.TOSBucket != nil {
+		cfg.TOS.Bucket = *in.TOSBucket
+	}
+	if in.TOSParentPath != nil {
+		cfg.TOS.ParentPath = *in.TOSParentPath
+	}
+	if in.RegistryNamespace != nil {
+		cfg.RegistryNamespace = *in.RegistryNamespace
+	}
+	if in.MockMode != nil {
+		cfg.MockMode = *in.MockMode
+	}
+
+	cpClient, err := buildCPClient(cfg)
+	if err != nil {
+		return config.Config{}, err
+	}
+	s.cfg = cfg
+	s.cpClient = cpClient
+	s.orch = buildOrchestrator(cfg, s.store, cpClient, s.now)
+	return cfg, nil
 }
 
 func buildCPClient(cfg config.Config) (cp.Client, error) {
@@ -121,6 +175,13 @@ func buildCPClient(cfg config.Config) (cp.Client, error) {
 	}), nil
 }
 
+// snapshot returns the current config and orchestrator under lock.
+func (s *Service) snapshot() (config.Config, *orchestrator.Orchestrator) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.cfg, s.orch
+}
+
 // CreateRunInput configures a new run.
 type CreateRunInput struct {
 	Name      string
@@ -130,13 +191,14 @@ type CreateRunInput struct {
 
 // CreateRun persists a new pending run.
 func (s *Service) CreateRun(ctx context.Context, in CreateRunInput) (model.Run, error) {
+	cfg, _ := s.snapshot()
 	name := strings.TrimSpace(in.Name)
 	if name == "" {
 		name = "run-" + s.now().UTC().Format("20060102150405")
 	}
 	dataset := in.Dataset
 	if dataset == "" {
-		dataset = s.cfg.Dataset.Name
+		dataset = cfg.Dataset.Name
 	}
 	run := model.Run{
 		ID:        newID(),
@@ -144,15 +206,13 @@ func (s *Service) CreateRun(ctx context.Context, in CreateRunInput) (model.Run, 
 		Status:    orchestrator.StatusPending,
 		Phase:     "created",
 		Dataset:   dataset,
-		TOSBucket: s.cfg.TOS.Bucket,
-		Registry:  s.cfg.RegistryNamespace,
+		TOSBucket: cfg.TOS.Bucket,
+		Registry:  cfg.RegistryNamespace,
 		CreatedAt: s.now().UTC(),
 	}
 	if err := s.store.CreateRun(ctx, run); err != nil {
 		return model.Run{}, err
 	}
-	// Stash the output dir in the run error field? No—use a dedicated approach:
-	// persist via metadata is out of scope; carry it through StartRun argument.
 	s.setOutputDir(run.ID, in.OutputDir)
 	return run, nil
 }
@@ -203,6 +263,7 @@ func (s *Service) StartRun(runID string) error {
 
 // execute runs materialize -> upload -> build, persisting failures on the run.
 func (s *Service) execute(ctx context.Context, run model.Run) {
+	cfg, orch := s.snapshot()
 	outDir := s.outputDir(run.ID)
 
 	var m *manifest.Manifest
@@ -221,8 +282,8 @@ func (s *Service) execute(ctx context.Context, run model.Run) {
 			Mode:        materializer.ModeCommand,
 			OutputDir:   defaultOutputDir(run.ID),
 			Dataset:     run.Dataset,
-			Split:       s.cfg.Dataset.Split,
-			ImagePrefix: s.cfg.RegistryNamespace,
+			Split:       cfg.Dataset.Split,
+			ImagePrefix: cfg.RegistryNamespace,
 			Tag:         "latest",
 		})
 		if err != nil {
@@ -234,8 +295,8 @@ func (s *Service) execute(ctx context.Context, run model.Run) {
 	}
 
 	// Upload (skipped in mock mode or when bucket is unset).
-	if !s.cfg.MockMode && s.cfg.TOS.Bucket != "" {
-		upRes, err := s.uploader.Upload(ctx, outDir, s.cfg.TOS.Bucket, s.cfg.TOS.ParentPath, s.now())
+	if !cfg.MockMode && cfg.TOS.Bucket != "" {
+		upRes, err := s.uploader.Upload(ctx, outDir, cfg.TOS.Bucket, cfg.TOS.ParentPath, s.now())
 		if err != nil {
 			s.markRunFailed(ctx, run, "upload", err)
 			return
@@ -247,7 +308,7 @@ func (s *Service) execute(ctx context.Context, run model.Run) {
 	run.ManifestJSON = m.RawJSON
 	_ = s.store.UpdateRun(ctx, run)
 
-	_ = s.orch.Build(ctx, run, m)
+	_ = orch.Build(ctx, run, m)
 }
 
 func (s *Service) markRunFailed(ctx context.Context, run model.Run, phase string, err error) {
@@ -269,18 +330,21 @@ func (s *Service) CancelRun(ctx context.Context, runID string) error {
 	if cancel, ok := s.running[runID]; ok {
 		cancel()
 	}
+	orch := s.orch
 	s.mu.Unlock()
-	return s.orch.CancelRun(ctx, runID)
+	return orch.CancelRun(ctx, runID)
 }
 
 // RetryImage retries a single failed image.
 func (s *Service) RetryImage(ctx context.Context, imageID string) error {
-	return s.orch.RetryImage(ctx, imageID)
+	_, orch := s.snapshot()
+	return orch.RetryImage(ctx, imageID)
 }
 
 // ImageLog returns redacted log content for an image.
 func (s *Service) ImageLog(ctx context.Context, imageID string) (string, error) {
-	raw, err := s.orch.ImageLog(ctx, imageID)
+	_, orch := s.snapshot()
+	raw, err := orch.ImageLog(ctx, imageID)
 	if err != nil {
 		return "", err
 	}
@@ -317,5 +381,6 @@ func (s *Service) Events(ctx context.Context, runID, afterID string) ([]model.Ru
 
 // Config returns the effective configuration.
 func (s *Service) Config() config.Config {
-	return s.cfg
+	cfg, _ := s.snapshot()
+	return cfg
 }
