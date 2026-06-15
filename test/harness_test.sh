@@ -25,12 +25,14 @@ require_executable scripts/check.sh
 require_executable scripts/check-openspec.sh
 require_executable scripts/check-secrets.sh
 require_executable scripts/check-shell.sh
+require_executable scripts/test-backend.sh
 require_executable scripts/tdd.sh
 require_executable test/harness_test.sh
 
 require_contains Makefile "tdd"
 require_contains Makefile "pre-commit"
 require_contains Makefile "pre-push"
+require_contains Makefile "test-backend"
 require_contains lefthook.yml "./scripts/check.sh pre-commit"
 require_contains lefthook.yml "./scripts/check.sh pre-push"
 require_contains AGENTS.md "make tdd"

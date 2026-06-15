@@ -1,6 +1,6 @@
 SHELL := /usr/bin/env bash
 
-.PHONY: tdd pre-commit pre-push check check-openspec check-secrets check-shell install-hooks lefthook-install
+.PHONY: tdd pre-commit pre-push check check-openspec check-secrets check-shell test-backend install-hooks lefthook-install
 
 tdd:
 	./scripts/check.sh tdd
@@ -21,6 +21,9 @@ check-secrets:
 
 check-shell:
 	./scripts/check-shell.sh
+
+test-backend:
+	./scripts/test-backend.sh
 
 install-hooks: lefthook-install
 

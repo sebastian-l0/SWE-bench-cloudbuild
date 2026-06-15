@@ -5,14 +5,14 @@
 - [x] 1.1 First-demo mode confirmed: clone/run the SWE-bench materializer from `sebastian-l0/SWE-bench` branch `feature/materialize-image-contexts`.
 - [x] 1.2 CP mode confirmed: create workspaces and pipelines through CP APIs; do not require pre-created CP resources.
 - [x] 1.3 Credential mode confirmed: support both `.env` and UI input, with UI-entered local configuration taking precedence.
-- [ ] 1.4 Define `.env.example` and config schema for Volc target, TOS bucket/path, dataset, materializer repo/ref, registry namespace, concurrency, CP creation settings, and mock mode.
-- [ ] 1.5 Add secret redaction helper and tests.
+- [x] 1.4 Define `.env.example` and config schema for Volc target, TOS bucket/path, dataset, materializer repo/ref, registry namespace, concurrency, CP creation settings, and mock mode.
+- [x] 1.5 Add secret redaction helper and tests.
 
 ## 2. Backend project foundation
 
-- [ ] 2.1 Create backend Go module and server skeleton.
-- [ ] 2.2 Add PostgreSQL persistence for runs, image builds, attempts, and events; local docker-compose uses `arm64v8/postgres:15`.
-- [ ] 2.3 Add HTTP routing, JSON error envelope, request validation, and health endpoint.
+- [x] 2.1 Create backend Go module and server skeleton.
+- [x] 2.2 Add PostgreSQL persistence for runs, image builds, attempts, and events; local docker-compose uses `arm64v8/postgres:15`.
+- [x] 2.3 Add HTTP routing, JSON error envelope, request validation, and health endpoint.
 - [ ] 2.4 Add SSE event bus backed by persisted events.
 
 ## 3. Materialization stage

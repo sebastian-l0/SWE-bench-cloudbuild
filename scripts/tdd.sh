@@ -15,4 +15,5 @@ Current repository harness checks are running now.
 MSG
 
 ./scripts/check-shell.sh
+./scripts/test-backend.sh
 ./scripts/check-openspec.sh

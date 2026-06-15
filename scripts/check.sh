@@ -17,11 +17,13 @@ case "$MODE" in
     ;;
   pre-commit)
     run ./scripts/check-shell.sh
+    run ./scripts/test-backend.sh
     run ./scripts/check-secrets.sh
     run ./scripts/check-openspec.sh
     ;;
   pre-push)
     run ./scripts/check-shell.sh
+    run ./scripts/test-backend.sh
     run ./scripts/check-secrets.sh
     run ./scripts/check-openspec.sh
     run ./test/harness_test.sh

@@ -1,0 +1,19 @@
+services:
+  postgres:
+    image: arm64v8/postgres:15
+    environment:
+      POSTGRES_USER: swe_cloudbuild
+      POSTGRES_PASSWORD: swe_cloudbuild
+      POSTGRES_DB: swe_cloudbuild
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U swe_cloudbuild -d swe_cloudbuild"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  postgres-data:
