@@ -5,11 +5,13 @@ import (
 	"net/http"
 
 	"github.com/sebastian-l0/SWE-bench-cloudbuild/server/internal/config"
+	"github.com/sebastian-l0/SWE-bench-cloudbuild/server/internal/service"
 )
 
 type Router struct {
 	mux *http.ServeMux
 	cfg config.Config
+	svc *service.Service
 }
 
 type errorEnvelope struct {
@@ -21,8 +23,16 @@ type apiError struct {
 	Message string `json:"message"`
 }
 
+// NewRouter builds a config-only router (no run operations). Used by basic tests.
 func NewRouter(cfg config.Config) http.Handler {
 	r := &Router{mux: http.NewServeMux(), cfg: cfg}
+	r.routes()
+	return r
+}
+
+// NewRouterWithService builds the full API router backed by a Service.
+func NewRouterWithService(svc *service.Service) http.Handler {
+	r := &Router{mux: http.NewServeMux(), cfg: svc.Config(), svc: svc}
 	r.routes()
 	return r
 }
@@ -34,6 +44,11 @@ func (r *Router) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 func (r *Router) routes() {
 	r.mux.HandleFunc("/healthz", r.health)
 	r.mux.HandleFunc("/api/config", r.config)
+	if r.svc != nil {
+		r.mux.HandleFunc("/api/runs", r.runsCollection)
+		r.mux.HandleFunc("/api/runs/", r.runsItem)
+		r.mux.HandleFunc("/api/images/", r.imagesItem)
+	}
 	r.mux.HandleFunc("/", r.notFound)
 }
 

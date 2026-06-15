@@ -8,6 +8,7 @@ import (
 
 	"github.com/sebastian-l0/SWE-bench-cloudbuild/server/internal/api"
 	"github.com/sebastian-l0/SWE-bench-cloudbuild/server/internal/config"
+	"github.com/sebastian-l0/SWE-bench-cloudbuild/server/internal/service"
 	"github.com/sebastian-l0/SWE-bench-cloudbuild/server/internal/store"
 )
 
@@ -26,7 +27,11 @@ func main() {
 		log.Fatalf("apply migrations: %v", err)
 	}
 
-	handler := api.NewRouter(cfg)
+	svc, err := service.New(service.Options{Config: cfg, Store: pg})
+	if err != nil {
+		log.Fatalf("init service: %v", err)
+	}
+	handler := api.NewRouterWithService(svc)
 
 	log.Printf("starting swe-cloudbuild server on %s", cfg.HTTPAddr)
 	if err := http.ListenAndServe(cfg.HTTPAddr, handler); err != nil {

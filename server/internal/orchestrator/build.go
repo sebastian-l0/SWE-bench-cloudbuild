@@ -2,6 +2,7 @@ package orchestrator
 
 import (
 	"context"
+	"encoding/json"
 	"strings"
 	"sync"
 
@@ -92,6 +93,22 @@ func (o *Orchestrator) markImage(ctx context.Context, img *model.ImageBuild, sta
 	img.Error = errMsg
 	img.UpdatedAt = o.now()
 	_ = o.store.UpdateImageBuild(ctx, *img)
+	o.emitEvent(ctx, img.RunID, img.ID, "image_status", map[string]string{
+		"layer": img.Layer, "localKey": img.LocalKey, "status": status, "error": errMsg,
+	})
+}
+
+// emitEvent appends a persisted run event used to drive SSE.
+func (o *Orchestrator) emitEvent(ctx context.Context, runID, imageID, eventType string, payload map[string]string) {
+	data, _ := json.Marshal(payload)
+	_ = o.store.AppendEvent(ctx, model.RunEvent{
+		ID:        o.newID(),
+		RunID:     runID,
+		ImageID:   imageID,
+		Type:      eventType,
+		Payload:   string(data),
+		CreatedAt: o.now(),
+	})
 }
 
 // skipLayer marks every image in a layer as skipped.
@@ -162,6 +179,7 @@ func (o *Orchestrator) setRunPhase(ctx context.Context, run *model.Run, phase, s
 		run.StartedAt = &now
 	}
 	_ = o.store.UpdateRun(ctx, *run)
+	o.emitEvent(ctx, run.ID, "", "run_phase", map[string]string{"phase": phase, "status": status})
 }
 
 func (o *Orchestrator) failRun(ctx context.Context, run *model.Run, err error) {
@@ -170,6 +188,7 @@ func (o *Orchestrator) failRun(ctx context.Context, run *model.Run, err error) {
 	run.Error = err.Error()
 	run.FinishedAt = &now
 	_ = o.store.UpdateRun(ctx, *run)
+	o.emitEvent(ctx, run.ID, "", "run_status", map[string]string{"status": StatusFailed, "error": err.Error()})
 }
 
 func (o *Orchestrator) completeRun(ctx context.Context, run *model.Run) {
@@ -177,6 +196,7 @@ func (o *Orchestrator) completeRun(ctx context.Context, run *model.Run) {
 	run.Status = StatusSuccess
 	run.FinishedAt = &now
 	_ = o.store.UpdateRun(ctx, *run)
+	o.emitEvent(ctx, run.ID, "", "run_status", map[string]string{"status": StatusSuccess})
 }
 
 // RetryImage re-runs a failed image build, creating a new attempt.
