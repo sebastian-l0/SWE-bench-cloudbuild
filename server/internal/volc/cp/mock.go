@@ -16,7 +16,6 @@ type MockClient struct {
 	connections map[string]ServiceConnection
 	pipelines   map[string]Pipeline
 	runs        map[string]PipelineRun
-	taskRuns    map[string][]TaskRun // keyed by pipeline run ID
 }
 
 // NewMockClient returns an empty in-memory CP client.
@@ -26,7 +25,6 @@ func NewMockClient() *MockClient {
 		connections: make(map[string]ServiceConnection),
 		pipelines:   make(map[string]Pipeline),
 		runs:        make(map[string]PipelineRun),
-		taskRuns:    make(map[string][]TaskRun),
 	}
 }
 
@@ -127,7 +125,7 @@ func (m *MockClient) ListPipelines(_ context.Context, workspaceID string) ([]Pip
 	return out, nil
 }
 
-func (m *MockClient) DeletePipeline(_ context.Context, id string) error {
+func (m *MockClient) DeletePipeline(_ context.Context, _ string, id string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if _, ok := m.pipelines[id]; !ok {
@@ -143,58 +141,53 @@ func (m *MockClient) RunPipeline(_ context.Context, in RunPipelineInput) (Pipeli
 	if _, ok := m.pipelines[in.PipelineID]; !ok {
 		return PipelineRun{}, notFound("pipeline", in.PipelineID)
 	}
-	run := PipelineRun{ID: m.nextID("run"), PipelineID: in.PipelineID, Status: "Running"}
+	run := PipelineRun{
+		ID:         m.nextID("run"),
+		PipelineID: in.PipelineID,
+		Status:     "Running",
+		Stages: []RunStage{{
+			ID: m.nextID("stage"), Name: "build", Status: "Running",
+			Tasks: []RunTask{{ID: m.nextID("task"), Name: "build", Status: "Running"}},
+		}},
+	}
 	m.runs[run.ID] = run
-	m.taskRuns[run.ID] = []TaskRun{{ID: m.nextID("task"), Name: "build", Status: "Running"}}
 	return run, nil
 }
 
 // GetPipelineRun returns the run. In the mock, a run transitions to Succeeded on
 // the first read after creation to allow simple end-to-end progression.
-func (m *MockClient) GetPipelineRun(_ context.Context, id string) (PipelineRun, error) {
+func (m *MockClient) GetPipelineRun(_ context.Context, _ string, _ string, runID string) (PipelineRun, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	run, ok := m.runs[id]
+	run, ok := m.runs[runID]
 	if !ok {
-		return PipelineRun{}, notFound("pipeline run", id)
+		return PipelineRun{}, notFound("pipeline run", runID)
 	}
 	if run.Status == "Running" {
 		run.Status = "Succeeded"
-		m.runs[id] = run
-		if tasks, ok := m.taskRuns[id]; ok {
-			for i := range tasks {
-				tasks[i].Status = "Succeeded"
+		for i := range run.Stages {
+			run.Stages[i].Status = "Succeeded"
+			for j := range run.Stages[i].Tasks {
+				run.Stages[i].Tasks[j].Status = "Succeeded"
 			}
-			m.taskRuns[id] = tasks
 		}
+		m.runs[runID] = run
 	}
 	return run, nil
 }
 
-func (m *MockClient) ListTaskRuns(_ context.Context, pipelineRunID string) ([]TaskRun, error) {
+func (m *MockClient) CancelPipelineRun(_ context.Context, _ string, _ string, runID string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	tasks, ok := m.taskRuns[pipelineRunID]
+	run, ok := m.runs[runID]
 	if !ok {
-		return nil, notFound("pipeline run", pipelineRunID)
-	}
-	out := make([]TaskRun, len(tasks))
-	copy(out, tasks)
-	return out, nil
-}
-
-func (m *MockClient) CancelPipelineRun(_ context.Context, id string) error {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	run, ok := m.runs[id]
-	if !ok {
-		return notFound("pipeline run", id)
+		return notFound("pipeline run", runID)
 	}
 	run.Status = "Canceled"
-	m.runs[id] = run
+	m.runs[runID] = run
 	return nil
 }
 
-func (m *MockClient) GetTaskRunLog(_ context.Context, taskRunID string, _ string) (LogPage, error) {
-	return LogPage{Content: fmt.Sprintf("mock log for task %s\n", taskRunID)}, nil
+func (m *MockClient) GetTaskRunLog(_ context.Context, _ string, taskID string, _ string) (LogPage, error) {
+	return LogPage{Content: fmt.Sprintf("mock log for task %s\n", taskID)}, nil
 }

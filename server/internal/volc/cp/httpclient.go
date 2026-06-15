@@ -63,8 +63,8 @@ func (c *HTTPClient) ListPipelines(ctx context.Context, workspaceID string) ([]P
 	return out.Items, err
 }
 
-func (c *HTTPClient) DeletePipeline(ctx context.Context, id string) error {
-	return c.Call(ctx, http.MethodPost, "DeletePipeline", map[string]string{"Id": id}, nil)
+func (c *HTTPClient) DeletePipeline(ctx context.Context, workspaceID, id string) error {
+	return c.Call(ctx, http.MethodPost, "DeletePipeline", map[string]string{"WorkspaceId": workspaceID, "Id": id}, nil)
 }
 
 func (c *HTTPClient) RunPipeline(ctx context.Context, in RunPipelineInput) (PipelineRun, error) {
@@ -73,27 +73,35 @@ func (c *HTTPClient) RunPipeline(ctx context.Context, in RunPipelineInput) (Pipe
 	return out, err
 }
 
-func (c *HTTPClient) GetPipelineRun(ctx context.Context, id string) (PipelineRun, error) {
-	var out PipelineRun
-	err := c.Call(ctx, http.MethodGet, "GetPipelineRun", map[string]string{"Id": id}, &out)
-	return out, err
-}
-
-func (c *HTTPClient) ListTaskRuns(ctx context.Context, pipelineRunID string) ([]TaskRun, error) {
+// GetPipelineRun fetches a run via ListPipelineRuns and selects the matching id.
+// CP has no single-run GET action on this version; ListPipelineRuns returns runs
+// with nested Stages/Tasks.
+func (c *HTTPClient) GetPipelineRun(ctx context.Context, workspaceID, pipelineID, runID string) (PipelineRun, error) {
 	var out struct {
-		Items []TaskRun `json:"Items"`
+		Items []PipelineRun `json:"Items"`
 	}
-	err := c.Call(ctx, http.MethodGet, "ListTaskRuns", map[string]string{"PipelineRunId": pipelineRunID}, &out)
-	return out.Items, err
+	err := c.Call(ctx, http.MethodGet, "ListPipelineRuns",
+		map[string]string{"WorkspaceId": workspaceID, "PipelineId": pipelineID}, &out)
+	if err != nil {
+		return PipelineRun{}, err
+	}
+	for _, run := range out.Items {
+		if run.ID == runID {
+			return run, nil
+		}
+	}
+	return PipelineRun{}, &APIError{HTTPStatus: 404, Code: "NotFound",
+		Message: "pipeline run " + runID + " not found"}
 }
 
-func (c *HTTPClient) CancelPipelineRun(ctx context.Context, id string) error {
-	return c.Call(ctx, http.MethodPost, "CancelPipelineRun", map[string]string{"Id": id}, nil)
+func (c *HTTPClient) CancelPipelineRun(ctx context.Context, workspaceID, pipelineID, runID string) error {
+	return c.Call(ctx, http.MethodPost, "CancelPipelineRun",
+		map[string]string{"WorkspaceId": workspaceID, "PipelineId": pipelineID, "Id": runID}, nil)
 }
 
-func (c *HTTPClient) GetTaskRunLog(ctx context.Context, taskRunID string, nextToken string) (LogPage, error) {
+func (c *HTTPClient) GetTaskRunLog(ctx context.Context, workspaceID, taskID string, nextToken string) (LogPage, error) {
 	var out LogPage
-	params := map[string]string{"TaskRunId": taskRunID}
+	params := map[string]string{"WorkspaceId": workspaceID, "TaskId": taskID}
 	if nextToken != "" {
 		params["NextToken"] = nextToken
 	}

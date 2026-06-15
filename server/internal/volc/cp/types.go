@@ -22,15 +22,25 @@ type Pipeline struct {
 	WorkspaceID string `json:"WorkspaceId"`
 }
 
-// PipelineRun is a single execution of a pipeline.
+// PipelineRun is a single execution of a pipeline. Stages/Tasks are populated by
+// ListPipelineRuns and carry per-task status.
 type PipelineRun struct {
-	ID         string `json:"Id"`
-	PipelineID string `json:"PipelineId"`
-	Status     string `json:"Status"`
+	ID         string     `json:"Id"`
+	PipelineID string     `json:"PipelineId"`
+	Status     string     `json:"Status"`
+	Stages     []RunStage `json:"Stages"`
 }
 
-// TaskRun is a task within a pipeline run.
-type TaskRun struct {
+// RunStage is a stage within a pipeline run.
+type RunStage struct {
+	ID     string    `json:"Id"`
+	Name   string    `json:"Name"`
+	Status string    `json:"Status"`
+	Tasks  []RunTask `json:"Tasks"`
+}
+
+// RunTask is a task within a run stage.
+type RunTask struct {
 	ID     string `json:"Id"`
 	Name   string `json:"Name"`
 	Status string `json:"Status"`
@@ -83,9 +93,11 @@ type RunPipelineParam struct {
 }
 
 // RunPipelineInput triggers a pipeline run with per-run parameter overrides.
+// CP identifies the pipeline via "Id" (not "PipelineId") on this action.
 type RunPipelineInput struct {
-	PipelineID string             `json:"PipelineId"`
-	Params     []RunPipelineParam `json:"Params,omitempty"`
+	WorkspaceID string             `json:"WorkspaceId"`
+	PipelineID  string             `json:"Id"`
+	Params      []RunPipelineParam `json:"Params,omitempty"`
 }
 
 // Client is the CP API surface used by the orchestrator. Both the real HTTP
@@ -102,12 +114,11 @@ type Client interface {
 
 	CreatePipeline(ctx context.Context, in CreatePipelineInput) (Pipeline, error)
 	ListPipelines(ctx context.Context, workspaceID string) ([]Pipeline, error)
-	DeletePipeline(ctx context.Context, id string) error
+	DeletePipeline(ctx context.Context, workspaceID, id string) error
 
 	RunPipeline(ctx context.Context, in RunPipelineInput) (PipelineRun, error)
-	GetPipelineRun(ctx context.Context, id string) (PipelineRun, error)
-	ListTaskRuns(ctx context.Context, pipelineRunID string) ([]TaskRun, error)
-	CancelPipelineRun(ctx context.Context, id string) error
+	GetPipelineRun(ctx context.Context, workspaceID, pipelineID, runID string) (PipelineRun, error)
+	CancelPipelineRun(ctx context.Context, workspaceID, pipelineID, runID string) error
 
-	GetTaskRunLog(ctx context.Context, taskRunID string, nextToken string) (LogPage, error)
+	GetTaskRunLog(ctx context.Context, workspaceID, taskID string, nextToken string) (LogPage, error)
 }

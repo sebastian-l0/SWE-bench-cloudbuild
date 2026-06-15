@@ -203,7 +203,7 @@ func (o *Orchestrator) CancelRun(ctx context.Context, runID string) error {
 		img := images[i]
 		if img.Status == StatusRunning || img.Status == StatusQueued {
 			if img.LastRunID != "" {
-				_ = o.cp.CancelPipelineRun(ctx, img.LastRunID)
+				_ = o.cp.CancelPipelineRun(ctx, img.WorkspaceID, img.PipelineID, img.LastRunID)
 			}
 			o.markImage(ctx, &img, StatusCanceled, "canceled by user")
 		}
@@ -227,17 +227,19 @@ func (o *Orchestrator) ImageLog(ctx context.Context, imageBuildID string) (strin
 	if img.LastRunID == "" {
 		return "", nil
 	}
-	tasks, err := o.cp.ListTaskRuns(ctx, img.LastRunID)
+	run, err := o.cp.GetPipelineRun(ctx, img.WorkspaceID, img.PipelineID, img.LastRunID)
 	if err != nil {
 		return "", err
 	}
 	var buf string
-	for _, task := range tasks {
-		page, err := o.cp.GetTaskRunLog(ctx, task.ID, "")
-		if err != nil {
-			return "", err
+	for _, stage := range run.Stages {
+		for _, task := range stage.Tasks {
+			page, err := o.cp.GetTaskRunLog(ctx, img.WorkspaceID, task.ID, "")
+			if err != nil {
+				return "", err
+			}
+			buf += page.Content
 		}
-		buf += page.Content
 	}
 	return buf, nil
 }

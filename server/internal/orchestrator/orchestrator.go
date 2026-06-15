@@ -177,8 +177,9 @@ func (o *Orchestrator) buildImage(ctx context.Context, img *model.ImageBuild) (s
 	}
 
 	pr, err := o.cp.RunPipeline(ctx, cp.RunPipelineInput{
-		PipelineID: img.PipelineID,
-		Params:     runParams(img.Layer, img.LocalKey, o.settings),
+		WorkspaceID: img.WorkspaceID,
+		PipelineID:  img.PipelineID,
+		Params:      runParams(img.Layer, img.LocalKey, o.settings),
 	})
 	if err != nil {
 		o.finishAttempt(ctx, &attempt, StatusFailed)
@@ -190,7 +191,7 @@ func (o *Orchestrator) buildImage(ctx context.Context, img *model.ImageBuild) (s
 	attempt.PipelineRunID = pr.ID
 	_ = o.store.UpdateAttempt(ctx, attempt)
 
-	status, err := o.pollRun(ctx, pr.ID)
+	status, err := o.pollRun(ctx, img.WorkspaceID, img.PipelineID, pr.ID)
 	o.finishAttempt(ctx, &attempt, status)
 	return status, err
 }
@@ -205,10 +206,10 @@ func (o *Orchestrator) finishAttempt(ctx context.Context, attempt *model.RunAtte
 
 // pollRun polls a CP pipeline run until it reaches a terminal state or the poll
 // timeout/context elapses.
-func (o *Orchestrator) pollRun(ctx context.Context, pipelineRunID string) (string, error) {
+func (o *Orchestrator) pollRun(ctx context.Context, workspaceID, pipelineID, pipelineRunID string) (string, error) {
 	deadline := o.now().Add(o.pollTimeout)
 	for {
-		pr, err := o.cp.GetPipelineRun(ctx, pipelineRunID)
+		pr, err := o.cp.GetPipelineRun(ctx, workspaceID, pipelineID, pipelineRunID)
 		if err != nil {
 			return StatusFailed, err
 		}
@@ -231,7 +232,8 @@ func (o *Orchestrator) pollRun(ctx context.Context, pipelineRunID string) (strin
 	}
 }
 
-// mapCPStatus maps CP run status strings to local statuses.
+// mapCPStatus maps CP run status strings to local statuses. Non-terminal CP
+// states (Dequeued, NotStart, Running, etc.) map to running.
 func mapCPStatus(s string) string {
 	switch s {
 	case "Succeeded", "Success", "succeeded":

@@ -44,18 +44,20 @@ func (p *programmableClient) RunPipeline(ctx context.Context, in cp.RunPipelineI
 	return pr, nil
 }
 
-func (p *programmableClient) GetPipelineRun(ctx context.Context, id string) (cp.PipelineRun, error) {
-	if p.canceled[id] {
-		return cp.PipelineRun{ID: id, Status: "Canceled"}, nil
+func (p *programmableClient) GetPipelineRun(ctx context.Context, workspaceID, pipelineID, runID string) (cp.PipelineRun, error) {
+	if p.canceled[runID] {
+		return cp.PipelineRun{ID: runID, Status: "Canceled"}, nil
 	}
-	tag := p.runTag[id]
+	tag := p.runTag[runID]
 	if status, ok := p.failTags[tag]; ok {
-		return cp.PipelineRun{ID: id, Status: status}, nil
+		return cp.PipelineRun{ID: runID, Status: status}, nil
 	}
-	return cp.PipelineRun{ID: id, Status: "Succeeded"}, nil
+	return cp.PipelineRun{ID: runID, Status: "Succeeded",
+		Stages: []cp.RunStage{{ID: "s", Name: "build", Status: "Succeeded",
+			Tasks: []cp.RunTask{{ID: "t", Name: "build", Status: "Succeeded"}}}}}, nil
 }
 
-func (p *programmableClient) CancelPipelineRun(ctx context.Context, id string) error {
+func (p *programmableClient) CancelPipelineRun(ctx context.Context, workspaceID, pipelineID, id string) error {
 	p.canceled[id] = true
 	return nil
 }
