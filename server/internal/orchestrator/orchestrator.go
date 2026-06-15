@@ -132,7 +132,7 @@ type layerPipelines struct {
 func (o *Orchestrator) PrepareResources(ctx context.Context, run model.Run, images []manifest.Image) (layerPipelines, error) {
 	lp := layerPipelines{byLayer: map[string]string{}}
 
-	ws, err := o.cp.CreateWorkspace(ctx, cp.CreateWorkspaceInput{Name: "swe-" + run.ID})
+	ws, err := o.cp.CreateWorkspace(ctx, cp.CreateWorkspaceInput{Name: "swe-" + run.ID, Visibility: "Account"})
 	if err != nil {
 		return lp, fmt.Errorf("orchestrator: create workspace: %w", err)
 	}

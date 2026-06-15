@@ -26,10 +26,9 @@ type Target struct {
 // It can be overridden per target or via VOLC_CP_SERVICE.
 const DefaultService = "cp"
 
-// DefaultVersion is the CP OpenAPI version. The exact value must be confirmed
-// against CP documentation / API Explorer and can be overridden via
-// VOLC_CP_VERSION without code changes.
-const DefaultVersion = "2023-01-01"
+// DefaultVersion is the CP OpenAPI version. It can be overridden per target or
+// via VOLC_CP_VERSION without code changes.
+const DefaultVersion = "2023-05-01"
 
 var builtinTargets = map[string]Target{
 	"pre": {

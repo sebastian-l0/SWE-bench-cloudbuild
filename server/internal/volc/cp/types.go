@@ -45,6 +45,8 @@ type LogPage struct {
 // CreateWorkspaceInput is the input for creating a workspace.
 type CreateWorkspaceInput struct {
 	Name string `json:"Name"`
+	// Visibility is required by CP; common values are "Private" and "Public".
+	Visibility string `json:"Visibility"`
 }
 
 // CreateServiceConnectionInput is the input for creating a service connection.
