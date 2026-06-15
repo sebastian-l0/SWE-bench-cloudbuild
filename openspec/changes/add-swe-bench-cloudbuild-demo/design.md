@@ -1,141 +1,124 @@
-# Design: SWE-bench CloudBuild Demo
+# 设计：SWE-bench CloudBuild 本地演示
 
-## Context
+## 上下文
 
-The target product is a locally started web application for building SWE-bench Docker images through Volcengine cloud services. The source document describes three implementation stages:
+SWE-cloudbuild 是一个本地 Web 应用，用于把 SWE-bench Dockerfile context 的生成、上传与云端构建串成一个可观察、可重试、可取消的流程。后续实现以本 OpenSpec change 为唯一需求来源；`PLAN.md` 仅保留为历史草稿，不再作为开发依据。
 
-1. Extend / use a SWE-bench fork so it only generates Dockerfile build contexts for `base`, `env`, and `instance` images.
-2. Store generated Dockerfiles in GitHub or another artifact store. For the demo, generated contexts are uploaded to TOS under a configured parent path plus timestamp.
-3. Use Volcengine Continuous Delivery (CP) to build images in dependency order: all `base_images` first, all `env_images` after base succeeds, then all `instance_images` after env succeeds.
+首版固定使用 SWE-bench materializer 分支：
 
-The current repository already contains a CP client OpenSpec change. This design layers the product workflow above that client.
+- 仓库：`https://github.com/sebastian-l0/SWE-bench`
+- 分支：`feature/materialize-image-contexts`
 
-## Goals / Non-Goals
+生成目录中必须包含 `manifest.json`，并描述三类镜像：
 
-**Goals**
+- `base_images`
+- `env_images`
+- `instance_images`
 
-- Provide a local web UI that guides a user through configuration and a single end-to-end build run.
-- Clone/run the materialization capability from `https://github.com/sebastian-l0/SWE-bench/tree/feature/materialize-image-contexts` to generate SWE-bench Dockerfile contexts for the first demo.
-- Upload all generated contexts to TOS under `{parent_path}/{timestamp}/`.
-- Parse `manifest.json` and model three image layers: `base_images`, `env_images`, `instance_images`.
-- Orchestrate CP runs in strict layer order, with configurable per-layer concurrency.
-- Show phase-level and image-level progress, logs, failures, retries, and cancellation.
-- Support mock mode for demos without real Volcengine/TOS credentials.
+## 目标 / 非目标
 
-**Non-Goals**
+### 目标
 
-- Running SWE-bench evaluation tasks.
-- Managing arbitrary Docker build systems outside the generated SWE-bench image contexts.
-- Hosted multi-user auth, RBAC, or shared persistent deployment.
-- Hosted resource procurement outside CP/TOS/registry scope. The first demo SHALL create CP workspaces and pipelines through CP APIs rather than requiring pre-created CP resources.
+- 提供本地 Web UI，引导用户配置并启动一次端到端构建运行。
+- 克隆/更新并执行 SWE-bench materializer，生成 Dockerfile context 与 manifest。
+- 支持已生成目录输入，作为测试与诊断路径。
+- 使用 `toscli` 将生成目录上传到 TOS timestamp prefix。
+- 解析 manifest，建立三层镜像依赖图。
+- 通过 Volcengine CP API 创建/确保工作区、服务连接和参数化镜像构建流水线。
+- 按严格层级闸门执行：所有 base 成功后 env，所有 env 成功后 instance。
+- 提供 PostgreSQL 持久化，使运行状态、镜像状态、attempt 和事件在后端重启后可恢复。
+- 通过 REST 与 SSE 暴露配置、运行、镜像、日志和进度。
+- 支持 mock mode，使没有真实 Volcengine/TOS 凭证时也可本地演示。
 
-## Architecture
+### 非目标
+
+- 不执行 SWE-bench evaluation。
+- 不支持多租户、远程托管、认证/RBAC。
+- 不管理任意 Docker build 系统；仅围绕 SWE-bench materializer 输出。
+- 不要求预创建 CP 资源；首版默认通过 API 创建/确保。
+
+## 总体架构
 
 ```text
 web/ React UI
   -> server HTTP API
-      -> config store / PostgreSQL
+      -> config + redaction
+      -> PostgreSQL store
       -> materializer runner
-      -> tos uploader
+      -> toscli uploader
       -> manifest parser
+      -> Volcengine CP client + mock client
       -> orchestrator / worker pool
-      -> volc CP client
-      -> SSE event bus
+      -> persisted event bus + SSE
 ```
 
-The backend is the source of truth. The web UI submits configuration and starts runs, then subscribes to SSE for progress updates. Long-running work is owned by the backend scheduler and persisted in PostgreSQL. Local development uses `arm64v8/postgres:15`, connected through `DATABASE_URL`.
+后端是状态源。前端只负责提交配置、发起操作、订阅 SSE、展示 REST 查询结果。长任务由后端 worker pool 执行，所有关键状态写入 PostgreSQL。
 
-## Components
+## 技术栈与目录约定
 
-### Configuration
+- 后端：Go 1.22，标准库 HTTP 起步；后续可引入 Gin/GORM，但不得破坏已有 API 契约。
+- 数据库：PostgreSQL 15，本地 docker-compose 使用 `arm64v8/postgres:15`，连接串通过 `DATABASE_URL`。
+- 前端：React 18 + Vite + TypeScript + Ant Design + React Query。
+- TOS：首版 shell out 到 `toscli`。
+- CP：在本 change 内实现 CP client / mock client；CP 签名、HTTP 调用、mock 不再放到独立 OpenSpec change。
 
-The UI and API collect:
-
-- Volcengine AK/SK and region/target from both `.env` and UI-entered local configuration. UI-entered values take precedence over `.env`; API responses and logs always return redacted values.
-- TOS bucket name and parent path.
-- SWE-bench dataset identifier, for example `SWE-bench/SWE-bench` with split `test`.
-- Materializer repository/ref, defaulting to `https://github.com/sebastian-l0/SWE-bench` and `feature/materialize-image-contexts`.
-- Final image registry namespace, for example `agentkit-platform-2100483201-cn-beijing.cr.volces.com/sebs-io/swebench`.
-- CP workspace/pipeline creation settings. The default and first-demo path creates workspaces and parameterized pipelines through CP APIs. Reusing existing resources can remain a later compatibility mode, but is not required for the first demo.
-- Per-layer concurrency and layer-gate policy.
-
-Secrets must not be written to logs. Local persistence may store encrypted/obfuscated secret references when available; `.env` is acceptable for the first local demo.
-
-### Materializer Runner
-
-The materializer stage wraps the SWE-bench fork capability. It should support two input modes:
-
-1. Clone or update `https://github.com/sebastian-l0/SWE-bench` at branch `feature/materialize-image-contexts`, then execute its materializer command to generate contexts and `manifest.json`.
-2. Use an already generated local directory only for tests and developer diagnostics, not as the primary first-demo path.
-
-The runner records command, repo/ref, dataset, output directory, start/end times, stdout/stderr tail, and final artifact location.
-
-### TOS Upload
-
-The upload stage shells out to `toscli` because the product note explicitly names it. It uploads the generated output directory into:
+建议目录：
 
 ```text
-tos://{bucket}/{parent_path}/{yyyyMMddHHmmss}/
+server/
+  cmd/server/
+  internal/api/
+  internal/config/
+  internal/model/
+  internal/store/
+  internal/materializer/
+  internal/tosupload/
+  internal/manifest/
+  internal/volc/
+  internal/volc/cp/
+  internal/orchestrator/
+  migrations/
+web/
+  src/api/
+  src/hooks/
+  src/pages/
 ```
 
-The timestamped prefix becomes the immutable remote context root for the run. The backend stores the TOS URI and per-file upload summary. Upload errors mark the run failed before any CP builds are triggered.
+## 配置与凭证
 
-### Manifest Parser
+配置项包括：
 
-The parser reads `manifest.json` from the generated output and normalizes entries into `ImageBuild` records. It preserves original manifest fields and extracts at minimum:
+- Volcengine AK/SK、target、region/endpoint override。
+- TOS bucket、parent path。
+- SWE-bench dataset 与 split。
+- materializer repo/ref。
+- 目标 registry namespace。
+- CP workspace/pipeline/service connection 创建设置。
+- base/env/instance 并发。
+- layer gate policy。
+- mock mode。
 
-- layer: `base`, `env`, or `instance`
-- local key / image name
-- target image
-- context path
-- Dockerfile path
-- dependency key (`env -> base`, `instance -> env`) when present
+规则：
 
-Unknown fields are preserved as JSON for later compatibility.
+1. `.env` 与 UI 本地配置都可提供配置。
+2. UI 输入优先于 `.env`。
+3. API 响应只返回非 secret 配置和 secret presence，不返回原始 secret。
+4. 日志、持久化事件、命令输出、错误消息和 API 响应都必须经过 redaction。
+5. 常见敏感键：`AK`、`SK`、`ACCESS_KEY`、`SECRET_KEY`、`TOKEN`、`PASSWORD`、`DATABASE_URL`、authorization headers、CP/TOS 凭证。
 
-### CP Orchestrator
+## 数据模型
 
-The orchestrator executes a run as phases:
-
-1. `materializing_dockerfiles`
-2. `uploading_dockerfiles`
-3. `building_base_images`
-4. `building_env_images`
-5. `building_instance_images`
-6. terminal: `success`, `failed`, or `canceled`
-
-Layer gates default to strict mode: every image in the current layer must succeed before the next layer starts. A later setting may enable best-effort mode where downstream images whose dependencies succeeded can continue.
-
-Before image builds start, the orchestrator creates the required CP workspaces and parameterized pipelines through the CP client. Each image build then calls `RunPipeline` with variables such as:
-
-- `CONTEXT_ROOT`: timestamped TOS prefix or Git/artifact root
-- `CONTEXT_PATH`: manifest context path relative to root
-- `DOCKERFILE`: Dockerfile path
-- `TARGET_IMAGE`: final registry image
-- `BASE_IMAGE` / `ENV_IMAGE`: dependency output image when applicable
-
-Run polling updates image status and emits SSE events. Logs are fetched on demand through the CP client.
-
-### Web UI
-
-The first UI should be intentionally small:
-
-- **Settings / New Run**: configure credentials references, dataset, TOS, registry, and CP pipeline mode.
-- **Run List**: show recent runs and terminal status.
-- **Run Detail**: show phase timeline, layer cards, progress bars, counts, failed images, start/cancel/retry actions.
-- **Image Detail**: show manifest data, CP run IDs, attempts, status history, and logs.
-
-## Data Model
+核心实体：
 
 ```go
 type Run struct {
     ID              string
     Name            string
     Status          string // pending/running/success/failed/canceled
-    Phase           string // materializing/uploading/building_base/building_env/building_instance
+    Phase           string // materializing/uploading/preparing_cp/building_base/building_env/building_instance
     Dataset         string
-    TosBucket       string
-    TosPrefix       string
+    TOSBucket       string
+    TOSPrefix       string
     Registry        string
     ManifestJSON    string
     Error           string
@@ -162,6 +145,17 @@ type ImageBuild struct {
     RawManifest    string
 }
 
+type RunAttempt struct {
+    ID            string
+    ImageBuildID  string
+    PipelineRunID string
+    Status        string
+    LogURL        string
+    StartedAt     time.Time
+    UpdatedAt     time.Time
+    FinishedAt    *time.Time
+}
+
 type RunEvent struct {
     ID        string
     RunID     string
@@ -172,52 +166,150 @@ type RunEvent struct {
 }
 ```
 
-## API Shape
+数据库必须使用 PostgreSQL-compatible SQL 类型，避免 SQLite-only 语法。
 
-| Method | Path | Purpose |
+## Materializer 阶段
+
+支持两种输入：
+
+1. **materializer-command 模式**：克隆/更新 `https://github.com/sebastian-l0/SWE-bench` 到指定 ref，执行 materializer 命令生成输出目录。
+2. **generated-directory 模式**：使用已有本地目录，只用于测试和诊断；必须校验 `manifest.json` 和 context 路径。
+
+需要持久化：repo/ref、dataset、命令、输出目录、stdout/stderr tail、开始/结束时间、失败原因。
+
+## TOS 上传阶段
+
+- 检查 `toscli` 是否存在，并记录版本。
+- 上传整个生成目录到：`tos://{bucket}/{parent_path}/{yyyyMMddHHmmss}/`。
+- 保存 TOS URI 与上传摘要。
+- 上传失败时运行失败，且不得触发任何 CP pipeline run。
+
+## Manifest parser 与依赖图
+
+Parser 读取 `manifest.json` 并将条目规范化为 `ImageBuild`：
+
+- layer：`base` / `env` / `instance`
+- local key / image name
+- target image
+- context path
+- Dockerfile path
+- dependency key：env 指向 base，instance 指向 env
+- raw manifest JSON
+
+校验：
+
+- 三层结构存在且格式正确。
+- local key 不重复。
+- 依赖 key 必须存在。
+- context path 与 Dockerfile path 不得越权逃逸输出目录。
+
+## Volcengine CP client
+
+CP client 在本 change 内实现，职责包括：
+
+- target 解析：至少支持 `pre`、`prod-cn`、`prod-sg`、`byteplus-sg`，`prod` 作为 `prod-cn` 别名。
+- V4-HMAC-SHA256 签名。
+- 统一错误模型：错误码、错误消息、RequestID、HTTP status。
+- workspace：create/list/update/delete。
+- service connection：create/get/list/update/delete。
+- pipeline：create/list/delete，创建接口标注为不稳定契约。
+- run：run/list task runs/list pipeline runs/cancel。
+- log：分页获取日志与下载 URI。
+- mock mode：内存实现 workspace/service connection/pipeline/run/log 生命周期。
+
+CP client 不负责业务重试、限流策略和调度节奏；这些由 orchestrator 控制。
+
+## CP 编排
+
+运行阶段：
+
+1. `materializing_dockerfiles`
+2. `uploading_dockerfiles`
+3. `preparing_cp_resources`
+4. `building_base_images`
+5. `building_env_images`
+6. `building_instance_images`
+7. terminal：`success` / `failed` / `canceled`
+
+编排规则：
+
+- 默认严格闸门：当前层全部成功后才进入下一层。
+- 任意当前层镜像永久失败时，后续层停止调度，并按依赖关系标记 skipped。
+- 每层有独立并发限制，默认 base=1、env=10、instance=20。
+- 每次 CP `RunPipeline` 前创建新的 attempt。
+- 如果已有 `LastRunID` 仍在运行，不得重复触发。
+- 轮询 CP 状态并映射为本地状态。
+- 日志按需通过 CP client 获取，并返回 redacted 内容。
+- cancel 需要取消本地 queued work，并尽力调用 CP cancel 运行中 pipeline run。
+
+CP pipeline 变量至少包含：
+
+- `CONTEXT_ROOT`
+- `CONTEXT_PATH`
+- `DOCKERFILE`
+- `TARGET_IMAGE`
+- `BASE_IMAGE` 或 `ENV_IMAGE`（适用时）
+
+## API 形态
+
+| Method | Path | 说明 |
 |---|---|---|
-| `GET` | `/api/config` | Read non-secret effective config and defaults |
-| `PUT` | `/api/config` | Save local config / secret references |
-| `POST` | `/api/runs` | Create a run from config |
-| `POST` | `/api/runs/:id/start` | Start materialize -> upload -> build orchestration |
-| `POST` | `/api/runs/:id/cancel` | Cancel queued/running work and CP runs when possible |
-| `POST` | `/api/runs/:id/retry` | Retry failed images or failed phase if safe |
-| `GET` | `/api/runs` | List runs |
-| `GET` | `/api/runs/:id` | Run detail with layer summary |
-| `GET` | `/api/runs/:id/events` | SSE progress stream |
-| `GET` | `/api/images/:id` | Image detail |
-| `POST` | `/api/images/:id/retry` | Retry one failed image |
-| `GET` | `/api/images/:id/log` | Fetch CP task logs |
+| `GET` | `/api/config` | 读取非 secret 的有效配置和默认值 |
+| `PUT` | `/api/config` | 保存 UI 本地配置 / secret 引用 |
+| `POST` | `/api/runs` | 基于配置创建运行 |
+| `POST` | `/api/runs/:id/start` | 启动 materialize -> upload -> CP build |
+| `POST` | `/api/runs/:id/cancel` | 取消 queued/running work |
+| `POST` | `/api/runs/:id/retry` | 重试失败阶段或失败镜像 |
+| `GET` | `/api/runs` | 运行列表 |
+| `GET` | `/api/runs/:id` | 运行详情和三层摘要 |
+| `GET` | `/api/runs/:id/events` | SSE 进度流 |
+| `GET` | `/api/images/:id` | 镜像详情 |
+| `POST` | `/api/images/:id/retry` | 重试单个失败镜像 |
+| `GET` | `/api/images/:id/log` | 获取 CP 日志 |
 
-## Error Handling
+错误响应统一使用 JSON envelope，例如：
 
-- Materialization failure stops before upload; store command exit code and stderr tail.
-- Upload failure stops before CP; store failed file/path if known.
-- CP trigger failure marks the image failed and applies layer-gate rules.
-- Polling failures use bounded retry with backoff; exhausted polling marks image unknown/failed with actionable error.
-- Cancellation attempts to cancel running CP pipeline runs and marks queued work canceled.
-- All secrets must be redacted from logs, API responses, and persisted event payloads.
+```json
+{"error":{"code":"not_found","message":"route not found"}}
+```
 
-## Testing Strategy
+## Web UI
 
-- Unit tests for manifest parsing, dependency graph validation, phase transitions, strict gate behavior, best-effort gate behavior, and retry/cancel state transitions.
-- Fake materializer that writes a small manifest and contexts.
-- Fake `toscli` runner that records upload calls without network.
-- CP mock client from `add-volc-cp-client` for pipeline run lifecycle.
-- Backend handler tests for run creation/start/detail/events.
-- Frontend component tests for phase timeline and layer progress states when the frontend stack is added.
-- One optional manual integration run with real TOS and CP resources.
+首版 UI 保持小而完整：
 
-## Milestones
+- Settings / New Run：配置凭证状态、dataset、TOS、registry、CP、mock。
+- Run List：展示最近 runs 和终态。
+- Run Detail：阶段 timeline、三层 card、进度、失败镜像、start/cancel/retry。
+- Image Detail / Log：展示 manifest 数据、attempt、CP run/task、日志。
+- SSE 自动重连，断线后可通过 REST 恢复当前状态。
 
-1. **M1 Foundations**: CP client, config with `.env` + UI credential sources, PostgreSQL schema, mock mode.
-2. **M2 Input pipeline**: SWE-bench fork clone/run materializer, generated-directory test mode, TOS upload wrapper, manifest parser.
-3. **M3 Orchestration**: CP workspace/pipeline creation, run phases, layer gates, worker pool, CP run/poll/log integration.
-4. **M4 Web demo**: settings, run list/detail, SSE progress, image logs.
-5. **M5 Polish**: retry/cancel, README, docker-compose, real integration runbook.
+## 测试策略
 
-## Confirmed Decisions
+- 配置加载与 redaction 单元测试。
+- CP signer、target、client、错误解析和 mock 生命周期测试。
+- Manifest parser 与依赖图校验测试。
+- Fake materializer 测试成功与命令失败。
+- Fake `toscli` 测试成功、缺失 binary、上传失败、日志脱敏。
+- Orchestrator 测试阶段迁移、严格闸门、重试、取消、CP 失败。
+- API handler 测试 config/run/image/log/events。
+- 前端基础 build 和关键组件状态测试。
+- mock end-to-end：generated fixture -> fake upload -> CP mock -> success。
 
-1. The first implementation clones/runs `https://github.com/sebastian-l0/SWE-bench/tree/feature/materialize-image-contexts` to materialize Dockerfiles. Generated-directory input remains for tests and diagnostics.
-2. The first implementation creates CP workspaces and pipelines through CP APIs. It does not require users to pre-create CP resources.
-3. Credentials are supported from both `.env` and UI input. UI-entered local configuration takes precedence over `.env`, and all API/log output must redact secrets.
+## 里程碑
+
+1. **M1 基础工程**：配置/redaction、Go server、PostgreSQL schema、docker-compose、前端脚手架、基础验证。
+2. **M2 CP client**：target、签名、HTTP client、workspace/service connection/pipeline/run/log、mock mode。
+3. **M3 输入管线**：materializer command、generated-directory、TOS upload、manifest parser。
+4. **M4 编排**：CP 资源准备、状态机、worker pool、层级闸门、retry/cancel/log。
+5. **M5 Web demo**：settings、run list/detail、SSE、image logs。
+6. **M6 文档与演示**：README、真实运行 runbook、mock e2e、示例 fixture。
+
+## 已确认决策
+
+1. 首版使用 `sebastian-l0/SWE-bench` 的 `feature/materialize-image-contexts` 分支。
+2. 首版通过 CP API 创建/确保工作区和参数化流水线，不依赖预创建资源。
+3. `.env` 与 UI 本地配置都支持，UI 优先。
+4. Secret 必须在日志、事件、持久化和 API 响应中脱敏。
+5. 持久化使用 PostgreSQL，不使用 SQLite。
+6. 默认严格层级闸门。
+7. 已生成目录输入仅用于测试和诊断。

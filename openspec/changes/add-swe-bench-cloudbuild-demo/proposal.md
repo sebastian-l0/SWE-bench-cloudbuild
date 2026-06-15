@@ -1,45 +1,54 @@
-# Add SWE-bench CloudBuild Demo (`add-swe-bench-cloudbuild-demo`)
+# 新增 SWE-bench CloudBuild 本地演示（`add-swe-bench-cloudbuild-demo`）
 
-## Why
+## 背景与目标
 
-The project goal is to provide a local web application that turns SWE-bench image build inputs into a staged cloud build workflow on Volcengine. The source product note defines an end-to-end flow:
+本项目要提供一个本地启动的 Web 应用，将 SWE-bench 镜像构建输入转化为火山引擎云端构建流程。后续开发以本 OpenSpec change 为准，不再依赖 `PLAN.md`，也不再依赖独立的 `add-volc-cp-client` change。
 
-1. Use the materialization capability from a SWE-bench fork to generate Dockerfiles for `base`, `env`, and `instance` images instead of building/evaluating them locally.
-2. Upload the generated Dockerfile contexts to a configured TOS bucket/path, using a timestamped parent directory for each run.
-3. Create and run Volcengine Continuous Delivery (CP) workspaces / image-build pipelines in dependency order: `base_images` first, then `env_images`, then `instance_images`.
-4. Show a basic product flow in a local web UI: Dockerfile generation, Dockerfile upload, and the three image build phases.
+首版端到端流程：
 
-The current OpenSpec change `add-volc-cp-client` covers only the CP OpenAPI client foundation. This change captures the full demo/product scope so implementation work can be planned as coherent milestones.
+1. 使用 `https://github.com/sebastian-l0/SWE-bench` 的 `feature/materialize-image-contexts` 分支生成 `base_images`、`env_images`、`instance_images` 三层 Dockerfile context 和 `manifest.json`，不在本地执行 SWE-bench evaluation。
+2. 将生成的 Dockerfile context 上传到 TOS：`{parent_path}/{timestamp}/`。
+3. 通过火山引擎持续交付（CP）API 创建/确保工作区与参数化镜像构建流水线。
+4. 按依赖顺序构建镜像：`base -> env -> instance`。
+5. 在本地 Web UI 展示配置、阶段进度、每个镜像状态、日志、重试与取消。
 
-## What Changes
+## 变更内容
 
-- Add an end-to-end capability for a local SWE-bench CloudBuild demo.
-- Add user configuration for Volcengine AK/SK, TOS bucket/path, SWE-bench dataset, Dockerfile materialization repository/ref, and final container registry namespace. Credentials are supported from both `.env` and UI-entered local configuration, with UI values taking precedence and all responses/logs redacted. Credentials are supported from both `.env` and UI-entered local configuration, with UI values taking precedence and all responses/logs redacted.
-- Add a backend workflow that clones/runs `https://github.com/sebastian-l0/SWE-bench/tree/feature/materialize-image-contexts` to materialize Dockerfiles, uploads them to TOS with `toscli`, parses the generated `manifest.json`, creates CP workspaces/pipelines through CP APIs, then orchestrates CP image builds in `base -> env -> instance` order.
-- Add a local web UI that shows configuration, phase progress, per-layer progress, per-image build status, failures, retries, cancellation, and logs.
-- Reuse `add-volc-cp-client` as the CP client dependency instead of redefining low-level CP signing and API details here.
+- 新增本地 SWE-bench CloudBuild 演示能力。
+- 新增配置能力：Volcengine AK/SK、CP target、TOS bucket/path、SWE-bench dataset、materializer repo/ref、目标镜像仓库 namespace、并发、CP 资源创建设置、mock mode。
+- 凭证来源支持 `.env` 与 UI 本地配置；UI 输入优先于 `.env`；日志、事件、持久化输出和 API 响应必须脱敏。
+- 后端负责 materialize、TOS 上传、manifest 解析、CP 资源准备、三层构建编排、状态持久化和 SSE 进度事件。
+- 前端提供设置/新建运行、运行列表、运行详情、镜像详情/日志等页面。
+- PostgreSQL 作为唯一持久化数据库；本地开发使用 `arm64v8/postgres:15`。
+- CP 客户端能力纳入本 change 的后端实现范围，不再通过独立 OpenSpec change 管理。
 
-## Capabilities
+## 能力范围
 
-### New Capabilities
+### 新增能力
 
-- `swe-bench-cloudbuild-demo`: local web application and backend orchestration for materializing SWE-bench Dockerfiles, uploading them to TOS, and building images through Volcengine CP in dependency order.
+- `swe-bench-cloudbuild-demo`：本地 Web 应用与后端编排能力，用于生成 SWE-bench Dockerfile context、上传 TOS，并通过 Volcengine CP 按依赖顺序构建镜像。
 
-### Related / Dependent Capabilities
+### 本 change 内部能力
 
-- `volc-cp-client` from `add-volc-cp-client`: CP workspace, service connection, pipeline, run, and log API client.
+- 本地配置与 secret redaction。
+- PostgreSQL schema 与运行状态持久化。
+- SWE-bench materializer runner。
+- `toscli` 上传封装。
+- Manifest parser 与依赖图校验。
+- Volcengine CP API client、mock client、workspace/pipeline/run/log 封装。
+- 调度器、worker pool、SSE 事件。
+- 本地 Web UI。
 
-## Impact
+## 影响
 
-- Adds backend modules for configuration, materialization command execution, TOS upload, manifest parsing, orchestration, persistence, and HTTP/SSE APIs.
-- Adds frontend pages for setup, run overview, batch details, image details, and logs.
-- Adds PostgreSQL persistence so workflow state survives page refreshes and backend restarts. Local development uses the `arm64v8/postgres:15` Docker image.
-- Adds `.env.example`, README/runbook, and mock mode so the demo can be exercised without real Volcengine credentials.
-- Introduces operational assumptions around local `toscli`, dataset access, GitHub repository access, and CP pipeline templates.
+- 增加后端模块：配置、redaction、数据库模型/迁移、materializer、TOS uploader、manifest parser、CP client、orchestrator、HTTP/SSE API。
+- 增加前端模块：设置/新建运行、运行列表、运行详情、镜像详情、日志视图。
+- 增加 `.env.example`、docker-compose、README/runbook、mock mode。
+- 增加测试：配置/redaction、manifest、TOS、CP client/mock、调度状态机、API handler、前端基础构建。
 
-## Non-goals
+## 非目标
 
-- Do not run SWE-bench evaluation in this application.
-- Do not build Docker images locally except in optional development mocks.
-- Do not implement a multi-tenant hosted SaaS; this is a local single-user demo.
-- Do not depend on pre-created CP workspaces or pipelines for the first runnable demo; the application should create them through CP APIs.
+- 不运行 SWE-bench evaluation。
+- 不在本地真实构建 Docker 镜像；本地构建仅可作为 mock/开发诊断能力。
+- 不实现多租户 SaaS、用户认证、RBAC 或远程托管。
+- 不要求用户预先在 CP 控制台手动创建工作区或流水线；首版应通过 CP API 创建/确保资源。
