@@ -19,6 +19,7 @@ type Config struct {
 	Dataset           DatasetConfig
 	Materializer      MaterializerConfig
 	RegistryNamespace string
+	Registry          RegistryConfig
 	Concurrency       ConcurrencyConfig
 	CP                CPConfig
 	MockMode          bool
@@ -27,6 +28,16 @@ type Config struct {
 type TOSConfig struct {
 	Bucket     string
 	ParentPath string
+	Region     string
+}
+
+// RegistryConfig describes the target container registry used by the CP build
+// step (registryInstance/namespace/repo in the pipeline spec).
+type RegistryConfig struct {
+	Instance     string // registry domain for the TOS download URL, e.g. agentkit-...cr.volces.com
+	InstanceName string // CR instance name for the build step, e.g. agentkit-platform-2100483201
+	Namespace    string // e.g. sebs-io
+	Repo         string // e.g. swebench
 }
 
 type DatasetConfig struct {
@@ -57,6 +68,7 @@ func Defaults() Config {
 		VolcTarget:  "prod-cn",
 		TOS: TOSConfig{
 			ParentPath: "swe-cloudbuild",
+			Region:     "cn-beijing",
 		},
 		Dataset: DatasetConfig{
 			Name:  "SWE-bench/SWE-bench",
@@ -75,6 +87,10 @@ func Defaults() Config {
 			WorkspacePrefix: "swe-cloudbuild",
 			PipelinePrefix:  "swe-image-build",
 		},
+		Registry: RegistryConfig{
+			Namespace: "sebs-io",
+			Repo:      "swebench",
+		},
 	}
 }
 
@@ -87,11 +103,16 @@ func Load() Config {
 	cfg.VolcSecretKey = envString("VOLC_SECRET_KEY", cfg.VolcSecretKey)
 	cfg.TOS.Bucket = envString("SWE_CLOUDBUILD_TOS_BUCKET", cfg.TOS.Bucket)
 	cfg.TOS.ParentPath = envString("SWE_CLOUDBUILD_TOS_PREFIX", cfg.TOS.ParentPath)
+	cfg.TOS.Region = envString("SWE_CLOUDBUILD_TOS_REGION", cfg.TOS.Region)
 	cfg.Dataset.Name = envString("SWE_CLOUDBUILD_DATASET", cfg.Dataset.Name)
 	cfg.Dataset.Split = envString("SWE_CLOUDBUILD_DATASET_SPLIT", cfg.Dataset.Split)
 	cfg.Materializer.RepoURL = envString("SWE_CLOUDBUILD_MATERIALIZER_REPO", cfg.Materializer.RepoURL)
 	cfg.Materializer.Ref = envString("SWE_CLOUDBUILD_MATERIALIZER_REF", cfg.Materializer.Ref)
 	cfg.RegistryNamespace = envString("SWE_CLOUDBUILD_REGISTRY_NAMESPACE", cfg.RegistryNamespace)
+	cfg.Registry.Instance = envString("SWE_CLOUDBUILD_REGISTRY_INSTANCE", cfg.Registry.Instance)
+	cfg.Registry.InstanceName = envString("SWE_CLOUDBUILD_REGISTRY_INSTANCE_NAME", cfg.Registry.InstanceName)
+	cfg.Registry.Namespace = envString("SWE_CLOUDBUILD_REGISTRY_NS", cfg.Registry.Namespace)
+	cfg.Registry.Repo = envString("SWE_CLOUDBUILD_REGISTRY_REPO", cfg.Registry.Repo)
 	cfg.CP.WorkspacePrefix = envString("SWE_CLOUDBUILD_CP_WORKSPACE_PREFIX", cfg.CP.WorkspacePrefix)
 	cfg.CP.PipelinePrefix = envString("SWE_CLOUDBUILD_CP_PIPELINE_PREFIX", cfg.CP.PipelinePrefix)
 	cfg.Concurrency.Base = envInt("SWE_CLOUDBUILD_CONCURRENCY_BASE", cfg.Concurrency.Base)

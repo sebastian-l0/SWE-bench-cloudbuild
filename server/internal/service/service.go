@@ -95,19 +95,21 @@ func buildOrchestrator(cfg config.Config, st store.Store, cpClient cp.Client, no
 		Client: cpClient,
 		Store:  st,
 		Settings: orchestrator.BuildSettings{
-			Registry:  cfg.RegistryNamespace,
-			Namespace: cfg.CP.WorkspacePrefix,
-			Repo:      cfg.CP.PipelinePrefix,
-			TOSBucket: cfg.TOS.Bucket,
-			TOSRegion: cfg.VolcTarget,
-			TOSPath:   cfg.TOS.ParentPath,
+			Registry:         cfg.Registry.Instance,
+			RegistryInstance: cfg.Registry.InstanceName,
+			Namespace:        cfg.Registry.Namespace,
+			Repo:             cfg.Registry.Repo,
+			TOSBucket:        cfg.TOS.Bucket,
+			TOSRegion:        cfg.TOS.Region,
+			TOSPath:          cfg.TOS.ParentPath,
 		},
 		Concurrency: orchestrator.Concurrency{
 			Base:     cfg.Concurrency.Base,
 			Env:      cfg.Concurrency.Env,
 			Instance: cfg.Concurrency.Instance,
 		},
-		Now: now,
+		IDGen: newID,
+		Now:   now,
 	})
 }
 
@@ -265,9 +267,10 @@ func (s *Service) StartRun(runID string) error {
 func (s *Service) execute(ctx context.Context, run model.Run) {
 	cfg, orch := s.snapshot()
 	outDir := s.outputDir(run.ID)
+	generatedDirInput := outDir != ""
 
 	var m *manifest.Manifest
-	if outDir != "" {
+	if generatedDirInput {
 		res, err := s.materializer.Materialize(ctx, materializer.Options{
 			Mode:      materializer.ModeGeneratedDir,
 			OutputDir: outDir,
@@ -294,8 +297,11 @@ func (s *Service) execute(ctx context.Context, run model.Run) {
 		outDir = res.OutputDir
 	}
 
-	// Upload (skipped in mock mode or when bucket is unset).
-	if !cfg.MockMode && cfg.TOS.Bucket != "" {
+	// Upload contexts to TOS. Generated-directory input is treated as already
+	// uploaded (diagnostic path): the contexts are expected to live under the
+	// configured TOS prefix, so the upload step is skipped.
+	tosPath := ""
+	if !generatedDirInput && !cfg.MockMode && cfg.TOS.Bucket != "" {
 		upRes, err := s.uploader.Upload(ctx, outDir, cfg.TOS.Bucket, cfg.TOS.ParentPath, s.now())
 		if err != nil {
 			s.markRunFailed(ctx, run, "upload", err)
@@ -303,12 +309,15 @@ func (s *Service) execute(ctx context.Context, run model.Run) {
 		}
 		run.TOSPrefix = upRes.Prefix
 		_ = s.store.UpdateRun(ctx, run)
+		// The materializer writes contexts under <outDir>/contexts, so the CP
+		// download base is the uploaded prefix plus /contexts.
+		tosPath = upRes.Prefix + "/contexts"
 	}
 
 	run.ManifestJSON = m.RawJSON
 	_ = s.store.UpdateRun(ctx, run)
 
-	_ = orch.Build(ctx, run, m)
+	_ = orch.Build(ctx, run, m, tosPath)
 }
 
 func (s *Service) markRunFailed(ctx context.Context, run model.Run, phase string, err error) {

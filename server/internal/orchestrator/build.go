@@ -53,7 +53,7 @@ func (o *Orchestrator) CreateImageBuilds(ctx context.Context, run model.Run, m *
 
 // runLayer builds all images in a layer using a bounded worker pool. It returns
 // true when every image succeeded.
-func (o *Orchestrator) runLayer(ctx context.Context, layer string, images []model.ImageBuild) bool {
+func (o *Orchestrator) runLayer(ctx context.Context, layer string, images []model.ImageBuild, tosPath string) bool {
 	limit := o.concurrency.forLayer(layer)
 	sem := make(chan struct{}, limit)
 	var wg sync.WaitGroup
@@ -69,7 +69,7 @@ func (o *Orchestrator) runLayer(ctx context.Context, layer string, images []mode
 			defer func() { <-sem }()
 
 			o.markImage(ctx, &img, StatusQueued, "")
-			status, err := o.buildImage(ctx, &img)
+			status, err := o.buildImage(ctx, &img, tosPath)
 			msg := ""
 			if err != nil {
 				msg = err.Error()
@@ -121,8 +121,10 @@ func (o *Orchestrator) skipLayer(ctx context.Context, images []model.ImageBuild)
 
 // Build runs the full CP orchestration for a run: prepare resources, persist
 // image builds, then build base -> env -> instance under a strict gate. The run
-// record is updated as phases progress and on terminal state.
-func (o *Orchestrator) Build(ctx context.Context, run model.Run, m *manifest.Manifest) error {
+// record is updated as phases progress and on terminal state. tosPath is the
+// per-run TOS path (e.g. "{parent}/{timestamp}/contexts"); empty falls back to
+// the static BuildSettings value.
+func (o *Orchestrator) Build(ctx context.Context, run model.Run, m *manifest.Manifest, tosPath string) error {
 	o.setRunPhase(ctx, &run, PhasePreparingCP, StatusRunning)
 
 	lp, err := o.PrepareResources(ctx, run, m.Images)
@@ -154,7 +156,7 @@ func (o *Orchestrator) Build(ctx context.Context, run model.Run, m *manifest.Man
 			continue
 		}
 		o.setRunPhase(ctx, &run, phaseForLayer(layer), StatusRunning)
-		if ok := o.runLayer(ctx, layer, imgs); !ok {
+		if ok := o.runLayer(ctx, layer, imgs, tosPath); !ok {
 			gateFailed = true
 			// Mark all downstream layers skipped.
 			for _, downstream := range layers[i+1:] {
@@ -205,8 +207,12 @@ func (o *Orchestrator) RetryImage(ctx context.Context, imageBuildID string) erro
 	if err != nil {
 		return err
 	}
+	tosPath := ""
+	if run, err := o.store.GetRun(ctx, img.RunID); err == nil && run.TOSPrefix != "" {
+		tosPath = run.TOSPrefix + "/contexts"
+	}
 	o.markImage(ctx, &img, StatusQueued, "")
-	status, buildErr := o.buildImage(ctx, &img)
+	status, buildErr := o.buildImage(ctx, &img, tosPath)
 	msg := ""
 	if buildErr != nil {
 		msg = buildErr.Error()

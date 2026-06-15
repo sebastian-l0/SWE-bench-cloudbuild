@@ -104,20 +104,19 @@ type CreatePipelineInput struct {
 	Parameters []PipelineParameter `json:"Parameters,omitempty"`
 }
 
-// RunPipelineParam overrides a dynamic parameter for a single run. The exact CP
-// field name (Params vs Variables) is unconfirmed and may need a one-line change
-// when integrating against the live API.
+// RunPipelineParam overrides a dynamic parameter for a single run.
 type RunPipelineParam struct {
 	Key   string `json:"Key"`
 	Value string `json:"Value"`
 }
 
 // RunPipelineInput triggers a pipeline run with per-run parameter overrides.
-// CP identifies the pipeline via "Id" (not "PipelineId") on this action.
+// CP identifies the pipeline via "Id" (not "PipelineId") and overrides dynamic
+// parameters via the "Parameters" field (not "Params").
 type RunPipelineInput struct {
 	WorkspaceID string             `json:"WorkspaceId"`
 	PipelineID  string             `json:"Id"`
-	Params      []RunPipelineParam `json:"Params,omitempty"`
+	Params      []RunPipelineParam `json:"Parameters,omitempty"`
 }
 
 // GetTaskRunLogInput identifies a single step's log within a task run.

@@ -94,9 +94,9 @@ func itoa(n int) string {
 func threeLayerManifest() *manifest.Manifest {
 	return &manifest.Manifest{
 		Images: []manifest.Image{
-			{Layer: manifest.LayerBase, LocalKey: "base1", TargetImage: "t/base1", ContextPath: "contexts/base/b", Dockerfile: "Dockerfile"},
-			{Layer: manifest.LayerEnv, LocalKey: "env1", TargetImage: "t/env1", ContextPath: "contexts/env/e", Dockerfile: "Dockerfile", DependsOnKey: "base1"},
-			{Layer: manifest.LayerInstance, LocalKey: "inst1", TargetImage: "t/inst1", ContextPath: "contexts/instances/i", Dockerfile: "Dockerfile", DependsOnKey: "env1"},
+			{Layer: manifest.LayerBase, LocalKey: "base1", TargetImage: "reg:base1", ContextPath: "contexts/base/b", Dockerfile: "Dockerfile"},
+			{Layer: manifest.LayerEnv, LocalKey: "env1", TargetImage: "reg:env1", ContextPath: "contexts/env/e", Dockerfile: "Dockerfile", DependsOnKey: "base1"},
+			{Layer: manifest.LayerInstance, LocalKey: "inst1", TargetImage: "reg:inst1", ContextPath: "contexts/instances/i", Dockerfile: "Dockerfile", DependsOnKey: "env1"},
 		},
 	}
 }
@@ -111,7 +111,7 @@ func TestBuildStrictSuccess(t *testing.T) {
 	if err := st.CreateRun(context.Background(), run); err != nil {
 		t.Fatalf("CreateRun: %v", err)
 	}
-	if err := o.Build(context.Background(), run, threeLayerManifest()); err != nil {
+	if err := o.Build(context.Background(), run, threeLayerManifest(), ""); err != nil {
 		t.Fatalf("Build: %v", err)
 	}
 
@@ -140,7 +140,7 @@ func TestBuildGateBlocksDownstreamOnFailure(t *testing.T) {
 	run := newRun("r2")
 	_ = st.CreateRun(context.Background(), run)
 
-	err := o.Build(context.Background(), run, threeLayerManifest())
+	err := o.Build(context.Background(), run, threeLayerManifest(), "")
 	if !errors.Is(err, errLayerFailed) {
 		t.Fatalf("Build err = %v, want errLayerFailed", err)
 	}
@@ -168,7 +168,7 @@ func TestBuildPrepareResourcesFailureFailsRun(t *testing.T) {
 	run := newRun("r3")
 	_ = st.CreateRun(context.Background(), run)
 
-	err := o.Build(context.Background(), run, threeLayerManifest())
+	err := o.Build(context.Background(), run, threeLayerManifest(), "")
 	if err == nil {
 		t.Fatal("expected prepare failure")
 	}
@@ -196,7 +196,7 @@ func TestRetryImageReRuns(t *testing.T) {
 	o, st := testOrchestrator(t, client)
 	run := newRun("r4")
 	_ = st.CreateRun(context.Background(), run)
-	_ = o.Build(context.Background(), run, threeLayerManifest())
+	_ = o.Build(context.Background(), run, threeLayerManifest(), "")
 
 	imgs, _ := st.ListImageBuildsByRun(context.Background(), "r4")
 	var envID string
@@ -230,7 +230,7 @@ func TestImageLogReturnsContent(t *testing.T) {
 	o, st := testOrchestrator(t, newProgrammableClient())
 	run := newRun("r5")
 	_ = st.CreateRun(context.Background(), run)
-	_ = o.Build(context.Background(), run, threeLayerManifest())
+	_ = o.Build(context.Background(), run, threeLayerManifest(), "")
 
 	imgs, _ := st.ListImageBuildsByRun(context.Background(), "r5")
 	log, err := o.ImageLog(context.Background(), imgs[0].ID)
@@ -269,7 +269,7 @@ func TestCancelRunMarksImagesCanceled(t *testing.T) {
 
 func TestRunParamsMapping(t *testing.T) {
 	s := BuildSettings{Registry: "reg", Namespace: "ns", Repo: "repo", TOSBucket: "bkt", TOSRegion: "cn-beijing", TOSPath: "p/ts"}
-	params := runParams(manifest.LayerEnv, "sweb.env.py.x86_64.abc", s)
+	params := runParams(manifest.LayerEnv, "reg.example.com/ns/repo:sweb.env.py.x86_64.abc", s)
 	got := map[string]string{}
 	for _, p := range params {
 		got[p.Key] = p.Value
@@ -277,6 +277,7 @@ func TestRunParamsMapping(t *testing.T) {
 	if got["type"] != "env" || got["script"] != "setup_env.sh" {
 		t.Fatalf("env params = %#v", got)
 	}
+	// tag is the registry tag (segment after the last colon of the target image).
 	if got["tag"] != "sweb.env.py.x86_64.abc" {
 		t.Fatalf("tag = %q", got["tag"])
 	}
@@ -287,16 +288,23 @@ func TestRunParamsMapping(t *testing.T) {
 		t.Fatalf("tos params = %#v", got)
 	}
 
-	base := runParams(manifest.LayerBase, "b", s)
+	base := runParams(manifest.LayerBase, "reg:b", s)
 	for _, p := range base {
 		if p.Key == "script" && p.Value != "none" {
 			t.Fatalf("base script = %q, want none", p.Value)
 		}
+		if p.Key == "type" && p.Value != "base" {
+			t.Fatalf("base type = %q", p.Value)
+		}
 	}
-	inst := runParams(manifest.LayerInstance, "i", s)
+	inst := runParams(manifest.LayerInstance, "reg:i", s)
 	for _, p := range inst {
 		if p.Key == "script" && p.Value != "setup_repo.sh" {
 			t.Fatalf("instance script = %q", p.Value)
+		}
+		// instance layer must map to the plural "instances" type/dir segment.
+		if p.Key == "type" && p.Value != "instances" {
+			t.Fatalf("instance type = %q, want instances", p.Value)
 		}
 	}
 }

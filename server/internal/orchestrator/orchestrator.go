@@ -161,8 +161,9 @@ func layerPresent(images []manifest.Image, layer string) bool {
 }
 
 // buildImage triggers a pipeline run for one image and polls until terminal.
-// It returns the final status (success/failed/canceled).
-func (o *Orchestrator) buildImage(ctx context.Context, img *model.ImageBuild) (string, error) {
+// It returns the final status (success/failed/canceled). tosPath overrides the
+// static BuildSettings TOS path when non-empty (per-run upload prefix).
+func (o *Orchestrator) buildImage(ctx context.Context, img *model.ImageBuild, tosPath string) (string, error) {
 	attemptID := o.newID()
 	now := o.now()
 	attempt := model.RunAttempt{
@@ -176,10 +177,14 @@ func (o *Orchestrator) buildImage(ctx context.Context, img *model.ImageBuild) (s
 		return StatusFailed, err
 	}
 
+	settings := o.settings
+	if tosPath != "" {
+		settings.TOSPath = tosPath
+	}
 	pr, err := o.cp.RunPipeline(ctx, cp.RunPipelineInput{
 		WorkspaceID: img.WorkspaceID,
 		PipelineID:  img.PipelineID,
-		Params:      runParams(img.Layer, img.LocalKey, o.settings),
+		Params:      runParams(img.Layer, img.TargetImage, settings),
 	})
 	if err != nil {
 		o.finishAttempt(ctx, &attempt, StatusFailed)
@@ -188,6 +193,9 @@ func (o *Orchestrator) buildImage(ctx context.Context, img *model.ImageBuild) (s
 
 	img.LastRunID = pr.ID
 	img.Attempts++
+	img.Status = StatusRunning
+	img.UpdatedAt = o.now()
+	_ = o.store.UpdateImageBuild(ctx, *img)
 	attempt.PipelineRunID = pr.ID
 	_ = o.store.UpdateAttempt(ctx, attempt)
 
