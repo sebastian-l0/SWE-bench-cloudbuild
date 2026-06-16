@@ -297,6 +297,10 @@ func (s *Service) execute(ctx context.Context, run model.Run) {
 		outDir = res.OutputDir
 	}
 
+	// Record the local materialized output directory.
+	run.OutputDir = outDir
+	_ = s.store.UpdateRun(ctx, run)
+
 	// Upload contexts to TOS. Generated-directory input is treated as already
 	// uploaded (diagnostic path): the contexts are expected to live under the
 	// configured TOS prefix, so the upload step is skipped.
@@ -307,6 +311,7 @@ func (s *Service) execute(ctx context.Context, run model.Run) {
 			s.markRunFailed(ctx, run, "upload", err)
 			return
 		}
+		run.TOSBucket = cfg.TOS.Bucket
 		run.TOSPrefix = upRes.Prefix
 		_ = s.store.UpdateRun(ctx, run)
 		// The materializer writes contexts under <outDir>/contexts, so the CP

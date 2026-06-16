@@ -1,7 +1,7 @@
 import { useQuery, useMutation } from '@tanstack/react-query';
 import { Link, useParams } from 'react-router-dom';
 import { Alert, Button, Card, Descriptions, Space, Tag, Typography } from 'antd';
-import { api, ApiError } from '../api/client';
+import { api, ApiError, cpRecordUrl } from '../api/client';
 import { statusColor } from './RunList';
 
 export function ImageDetail() {
@@ -13,6 +13,8 @@ export function ImageDetail() {
     enabled: !!id
   });
 
+  const { data: config } = useQuery({ queryKey: ['config'], queryFn: api.getConfig });
+
   const logMut = useMutation({
     mutationFn: () => api.getImageLog(id)
   });
@@ -20,11 +22,22 @@ export function ImageDetail() {
   if (isLoading) return <Card loading />;
   if (error || !data) return <Alert type="error" message="Failed to load image" />;
 
+  const consoleUrl = cpRecordUrl(config?.tos?.Region ?? '', data);
+
   return (
     <Space direction="vertical" style={{ width: '100%' }} size="large">
       <Card
         title={`Image: ${data.LocalKey}`}
-        extra={<Link to={`/runs/${data.RunID}`}>Back to run</Link>}
+        extra={
+          <Space>
+            {consoleUrl && (
+              <a href={consoleUrl} target="_blank" rel="noreferrer">
+                Open in CP Console
+              </a>
+            )}
+            <Link to={`/runs/${data.RunID}`}>Back to run</Link>
+          </Space>
+        }
       >
         <Descriptions bordered column={1} size="small">
           <Descriptions.Item label="Status">

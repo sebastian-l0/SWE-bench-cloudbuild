@@ -69,16 +69,16 @@ func (s *PostgresStore) ApplyMigrations(ctx context.Context, migrationsDir strin
 
 func (s *PostgresStore) CreateRun(ctx context.Context, run model.Run) error {
 	_, err := s.pool.Exec(ctx, `
-		INSERT INTO runs (id, name, status, phase, dataset, tos_bucket, tos_prefix, registry, manifest_json, error, created_at, started_at, finished_at)
-		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)`,
-		run.ID, run.Name, run.Status, run.Phase, run.Dataset, run.TOSBucket, run.TOSPrefix, run.Registry,
+		INSERT INTO runs (id, name, status, phase, dataset, output_dir, tos_bucket, tos_prefix, registry, manifest_json, error, created_at, started_at, finished_at)
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)`,
+		run.ID, run.Name, run.Status, run.Phase, run.Dataset, run.OutputDir, run.TOSBucket, run.TOSPrefix, run.Registry,
 		jsonbOrNil(run.ManifestJSON), run.Error, run.CreatedAt, run.StartedAt, run.FinishedAt)
 	return wrapExec(err)
 }
 
 func (s *PostgresStore) GetRun(ctx context.Context, id string) (model.Run, error) {
 	row := s.pool.QueryRow(ctx, `
-		SELECT id, name, status, phase, dataset, tos_bucket, tos_prefix, registry,
+		SELECT id, name, status, phase, dataset, output_dir, tos_bucket, tos_prefix, registry,
 		       COALESCE(manifest_json::text, ''), error, created_at, started_at, finished_at
 		FROM runs WHERE id = $1`, id)
 	return scanRun(row)
@@ -86,7 +86,7 @@ func (s *PostgresStore) GetRun(ctx context.Context, id string) (model.Run, error
 
 func (s *PostgresStore) ListRuns(ctx context.Context) ([]model.Run, error) {
 	rows, err := s.pool.Query(ctx, `
-		SELECT id, name, status, phase, dataset, tos_bucket, tos_prefix, registry,
+		SELECT id, name, status, phase, dataset, output_dir, tos_bucket, tos_prefix, registry,
 		       COALESCE(manifest_json::text, ''), error, created_at, started_at, finished_at
 		FROM runs ORDER BY created_at DESC, id`)
 	if err != nil {
@@ -106,10 +106,10 @@ func (s *PostgresStore) ListRuns(ctx context.Context) ([]model.Run, error) {
 
 func (s *PostgresStore) UpdateRun(ctx context.Context, run model.Run) error {
 	tag, err := s.pool.Exec(ctx, `
-		UPDATE runs SET name=$2, status=$3, phase=$4, dataset=$5, tos_bucket=$6, tos_prefix=$7,
-		       registry=$8, manifest_json=$9, error=$10, started_at=$11, finished_at=$12
+		UPDATE runs SET name=$2, status=$3, phase=$4, dataset=$5, output_dir=$6, tos_bucket=$7, tos_prefix=$8,
+		       registry=$9, manifest_json=$10, error=$11, started_at=$12, finished_at=$13
 		WHERE id=$1`,
-		run.ID, run.Name, run.Status, run.Phase, run.Dataset, run.TOSBucket, run.TOSPrefix, run.Registry,
+		run.ID, run.Name, run.Status, run.Phase, run.Dataset, run.OutputDir, run.TOSBucket, run.TOSPrefix, run.Registry,
 		jsonbOrNil(run.ManifestJSON), run.Error, run.StartedAt, run.FinishedAt)
 	if err != nil {
 		return err
@@ -260,7 +260,7 @@ type rowScanner interface {
 
 func scanRun(row rowScanner) (model.Run, error) {
 	var r model.Run
-	err := row.Scan(&r.ID, &r.Name, &r.Status, &r.Phase, &r.Dataset, &r.TOSBucket, &r.TOSPrefix, &r.Registry,
+	err := row.Scan(&r.ID, &r.Name, &r.Status, &r.Phase, &r.Dataset, &r.OutputDir, &r.TOSBucket, &r.TOSPrefix, &r.Registry,
 		&r.ManifestJSON, &r.Error, &r.CreatedAt, &r.StartedAt, &r.FinishedAt)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return model.Run{}, ErrNotFound

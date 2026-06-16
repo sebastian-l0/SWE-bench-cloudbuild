@@ -46,7 +46,7 @@ export interface SecretPresence {
 export interface PublicConfig {
   httpAddr: string;
   volcTarget: string;
-  tos: { Bucket: string; ParentPath: string };
+  tos: { Bucket: string; ParentPath: string; Region: string };
   dataset: { Name: string; Split: string };
   materializer: { RepoURL: string; Ref: string };
   registryNamespace: string;
@@ -62,6 +62,9 @@ export interface Run {
   Status: string;
   Phase: string;
   Dataset: string;
+  OutputDir: string;
+  TOSBucket: string;
+  TOSPrefix: string;
   Registry: string;
   Error: string;
   CreatedAt: string;
@@ -108,4 +111,25 @@ export const api = {
 
 export function eventsUrl(runID: string): string {
   return `/api/runs/${runID}/events`;
+}
+
+// cpRecordUrl builds a deep link to the CP console for a pipeline. When the
+// image has a pipeline run it links to that specific record; otherwise it links
+// to the pipeline's record list. Returns null until the pipeline exists.
+export function cpRecordUrl(region: string, img: ImageBuild): string | null {
+  if (!region || !img.WorkspaceID || !img.PipelineID) {
+    return null;
+  }
+  const base =
+    `https://console.volcengine.com/cp/region:cp+${region}` +
+    `/v2/workspace/${img.WorkspaceID}/pipeline/${img.PipelineID}/record`;
+  return img.LastRunID ? `${base}/${img.LastRunID}` : base;
+}
+
+// cpWorkspaceUrl builds a link to the CP workspace console.
+export function cpWorkspaceUrl(region: string, workspaceID: string): string | null {
+  if (!region || !workspaceID) {
+    return null;
+  }
+  return `https://console.volcengine.com/cp/region:cp+${region}/v2/workspace/${workspaceID}`;
 }
