@@ -2,6 +2,24 @@
 
 Local web application for building SWE-bench Docker images through Volcengine cloud services.
 
+## Product screenshots
+
+### Runs
+
+![Runs page](assets/screenshots/runs.png)
+
+### Settings
+
+![Settings page](assets/screenshots/settings.png)
+
+### Run detail
+
+![Run detail page](assets/screenshots/run-detail.png)
+
+### Image detail
+
+![Image detail page](assets/screenshots/image-detail.png)
+
 ## Foundation quickstart
 
 1. Copy `.env.example` to `.env` and fill local values as needed.
@@ -114,4 +132,3 @@ The CP client was validated against the production CP API:
 
 Secrets are never returned by the API (only presence is reported) and are
 redacted from logs, events and command output.
-
