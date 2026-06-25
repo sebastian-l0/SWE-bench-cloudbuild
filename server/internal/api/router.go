@@ -5,11 +5,13 @@ import (
 	"net/http"
 
 	"github.com/sebastian-l0/SWE-bench-cloudbuild/server/internal/config"
+	"github.com/sebastian-l0/SWE-bench-cloudbuild/server/internal/service"
 )
 
 type Router struct {
 	mux *http.ServeMux
 	cfg config.Config
+	svc *service.Service
 }
 
 type errorEnvelope struct {
@@ -21,8 +23,16 @@ type apiError struct {
 	Message string `json:"message"`
 }
 
+// NewRouter builds a config-only router (no run operations). Used by basic tests.
 func NewRouter(cfg config.Config) http.Handler {
 	r := &Router{mux: http.NewServeMux(), cfg: cfg}
+	r.routes()
+	return r
+}
+
+// NewRouterWithService builds the full API router backed by a Service.
+func NewRouterWithService(svc *service.Service) http.Handler {
+	r := &Router{mux: http.NewServeMux(), cfg: svc.Config(), svc: svc}
 	r.routes()
 	return r
 }
@@ -34,6 +44,11 @@ func (r *Router) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 func (r *Router) routes() {
 	r.mux.HandleFunc("/healthz", r.health)
 	r.mux.HandleFunc("/api/config", r.config)
+	if r.svc != nil {
+		r.mux.HandleFunc("/api/runs", r.runsCollection)
+		r.mux.HandleFunc("/api/runs/", r.runsItem)
+		r.mux.HandleFunc("/api/images/", r.imagesItem)
+	}
 	r.mux.HandleFunc("/", r.notFound)
 }
 
@@ -46,11 +61,31 @@ func (r *Router) health(w http.ResponseWriter, req *http.Request) {
 }
 
 func (r *Router) config(w http.ResponseWriter, req *http.Request) {
-	if req.Method != http.MethodGet {
+	switch req.Method {
+	case http.MethodGet:
+		cfg := r.cfg
+		if r.svc != nil {
+			cfg = r.svc.Config()
+		}
+		writeJSON(w, http.StatusOK, PublicConfigFrom(cfg))
+	case http.MethodPut:
+		if r.svc == nil {
+			writeError(w, http.StatusNotImplemented, "not_implemented", "config updates require a service")
+			return
+		}
+		var body configUpdateBody
+		if req.Body != nil {
+			_ = json.NewDecoder(req.Body).Decode(&body)
+		}
+		cfg, err := r.svc.UpdateConfig(body.toServiceUpdate())
+		if err != nil {
+			writeError(w, http.StatusBadRequest, "invalid_config", err.Error())
+			return
+		}
+		writeJSON(w, http.StatusOK, PublicConfigFrom(cfg))
+	default:
 		writeError(w, http.StatusMethodNotAllowed, "method_not_allowed", "method not allowed")
-		return
 	}
-	writeJSON(w, http.StatusOK, PublicConfigFrom(r.cfg))
 }
 
 func (r *Router) notFound(w http.ResponseWriter, req *http.Request) {

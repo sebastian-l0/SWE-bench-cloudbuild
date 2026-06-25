@@ -8,6 +8,7 @@ type Run struct {
 	Status       string
 	Phase        string
 	Dataset      string
+	OutputDir    string
 	TOSBucket    string
 	TOSPrefix    string
 	Registry     string

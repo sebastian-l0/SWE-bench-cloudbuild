@@ -28,6 +28,7 @@ dist/
 build/
 out/
 target/
+*.tsbuildinfo
 
 # Cache / temp
 .cache/
